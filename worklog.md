@@ -49,3 +49,35 @@ Updated `/home/z/my-project/src/app/globals.css` from default Next.js theme to A
 - **Base layer**: Added smooth scroll, font smoothing, serif headings with letter-spacing, cursor-pointer for interactive elements, and `.font-display`/`.font-serif` utility classes.
 - **Components layer**: Custom `.container` with responsive padding and max-width, flex min-size fix.
 - **Utilities layer**: Added `.btn-press` (scale on active), `.product-hover` (lift + shadow on hover), `.fade-in` animation, `.divider-gold` gradient divider, and custom scrollbar styling.
+
+## Task 6 - Sub-Pages & GitHub Push (Completed)
+
+Created all missing sub-pages and pushed to GitHub:
+
+### New Pages Created:
+1. **Store** (`/store/page.tsx`) - Product listing with category sidebar, search, sort, mobile filters
+2. **Product Detail** (`/product/[id]/page.tsx`) - Product gallery, breadcrumbs, related products, add to cart
+3. **About** (`/about/page.tsx`) - Mission, values, legal entity info, CTA
+4. **Checkout** (`/checkout/page.tsx`) - 4-step checkout (Personal → Address → Confirm → Confirmation)
+5. **Not Found** (`/not-found.tsx`) - 404 page with AZORES.BIO styling
+
+### Other Changes:
+- Updated `next.config.ts` - Removed `output: "standalone"` for Vercel compatibility
+- Updated orders API to return `orderNumber`, `invoiceNumber`, `total` directly
+- Fixed lint errors (setState in effect)
+- All pages verified returning 200
+
+### GitHub Push:
+- Pushed to `https://github.com/AtlasGlobalCore/azores-essence-webstore.git`
+- 551 files changed (deleted old Vite, added Next.js)
+- Created 558-line comprehensive technical README covering:
+  - Full migration comparison table (Vite vs Next.js)
+  - Architecture diagram, tech stack, project structure
+  - Database ER diagram (6 Prisma models)
+  - API routes documentation (9 endpoints)
+  - i18n system (4 languages, 120+ keys)
+  - Multi-currency (EUR/USD/GBP)
+  - Maria da Terra AI assistant
+  - Stripe payments, Cart & Checkout
+  - Design System (Organic Boutique)
+  - Vercel deployment guide with PostgreSQL migration
