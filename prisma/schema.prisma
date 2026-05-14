@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Categories ────────────────────────────────────────────────────────────
+model Category {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  nameEn      String
+  namePt      String
+  nameFr      String?
+  nameDe      String?
+  description String?
+  imageUrl    String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  products Product[]
+}
+
+// ─── Products ──────────────────────────────────────────────────────────────
+model Product {
+  id              Int      @id @default(autoincrement())
+  sku             String?  @unique
+  name            String
+  nameEn          String?
+  nameFr          String?
+  nameDe          String?
+  description     String?
+  descriptionEn   String?
+  descriptionFr   String?
+  descriptionDe   String?
+  price           Float
+  compareAtPrice  Float?
+  stock           Int      @default(0)
+  categoryId      Int?
+  imageUrl        String?
+  images          String?  // JSON string array
+  weight          Float?
+  origin          String?
+  featured        Boolean  @default(false)
+  active          Boolean  @default(true)
+  tags            String?  // JSON string array
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category Category?  @relation(fields: [categoryId], references: [id])
+}
+
+// ─── Orders ────────────────────────────────────────────────────────────────
+model Order {
+  id                  Int      @id @default(autoincrement())
+  orderNumber         String   @unique
+  userId              Int?
+  status              String   @default("pending")
+  customerName        String
+  customerEmail       String
+  customerPhone       String?
+  customerVat         String?
+  shippingAddress     String
+  shippingCity        String
+  shippingPostalCode  String
+  shippingCountry     String
+  subtotal            Float
+  shippingCost        Float    @default(0)
+  tax                 Float    @default(0)
+  total               Float
+  currency            String   @default("EUR")
+  atlasPaymentId      String?
+  atlasPaymentStatus  String?
+  paidAt              DateTime?
+  notes               String?
+  locale              String   @default("pt")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  items    OrderItem[]
+  invoice  Invoice?
+}
+
+// ─── Order Items ───────────────────────────────────────────────────────────
+model OrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  productId   Int
+  productName String
+  productSku  String?
+  quantity    Int
+  unitPrice   Float
+  totalPrice  Float
+  createdAt   DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+// ─── Invoices ──────────────────────────────────────────────────────────────
+model Invoice {
+  id              Int      @id @default(autoincrement())
+  invoiceNumber   String   @unique
+  orderId         Int      @unique
+  issuerName      String   @default("Azores Meet, Lda")
+  issuerVat       String   @default("513553169")
+  issuerAddress   String   @default("Macela, 9875-030 Santo Antão, Calheta (São Jorge), Açores")
+  customerName    String
+  customerEmail   String
+  customerVat     String?
+  customerAddress String?
+  subtotal        Float
+  tax             Float    @default(0)
+  total           Float
+  currency        String   @default("EUR")
+  pdfUrl          String?
+  pdfKey          String?
+  status          String   @default("issued")
+  issuedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+// ─── Chat Sessions (Maria da Terra) ───────────────────────────────────────
+model ChatSession {
+  id        Int      @id @default(autoincrement())
+  sessionId String   @unique
+  userId    Int?
+  messages  String?  // JSON array
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
