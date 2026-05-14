@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { SlidersHorizontal, Search, X, ChevronDown } from 'lucide-react';
@@ -48,7 +48,7 @@ interface ProductData {
   } | null;
 }
 
-export default function StorePage() {
+function StorePageContent() {
   const searchParams = useSearchParams();
   const { t, getCategoryName } = useStore();
 
@@ -339,5 +339,28 @@ export default function StorePage() {
       {/* Close dropdowns */}
       {sortOpen && <div className="fixed inset-0 z-10" onClick={() => setSortOpen(false)} />}
     </div>
+  );
+}
+
+export default function StorePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#f8f5f0] pt-20 lg:pt-24">
+        <div className="bg-[#1a3a3a] py-12 md:py-16">
+          <div className="container">
+            <div className="animate-pulse bg-white/20 h-8 w-48" />
+          </div>
+        </div>
+        <div className="container py-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="bg-[#ede8e0] animate-pulse aspect-[3/4]" />
+            ))}
+          </div>
+        </div>
+      </div>
+    }>
+      <StorePageContent />
+    </Suspense>
   );
 }
