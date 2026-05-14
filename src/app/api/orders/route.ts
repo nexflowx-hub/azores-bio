@@ -182,7 +182,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ order: completeOrder }, { status: 201 });
+    return NextResponse.json({
+      orderNumber: completeOrder?.orderNumber || orderNumber,
+      invoiceNumber: completeOrder?.invoice?.invoiceNumber || `FAT-${new Date().getFullYear()}-${order.id.toString().padStart(6, '0')}`,
+      total: completeOrder?.total || total,
+      orderId: order.id,
+    }, { status: 201 });
   } catch (error) {
     console.error('Error creating order:', error);
     return NextResponse.json(
