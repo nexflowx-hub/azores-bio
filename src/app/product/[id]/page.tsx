@@ -6,72 +6,27 @@ import Link from 'next/link';
 import { ShoppingBag, Check, ArrowLeft, Minus, Plus, MapPin, Package } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
-
-interface ProductData {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  description?: string | null;
-  descriptionEn?: string | null;
-  descriptionFr?: string | null;
-  descriptionDe?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  imageUrl?: string | null;
-  images?: string | null;
-  stock: number;
-  featured: boolean;
-  origin?: string | null;
-  category?: {
-    id: number;
-    slug: string;
-    nameEn: string;
-    namePt: string;
-    nameFr?: string | null;
-    nameDe?: string | null;
-  } | null;
-}
-
-interface RelatedProduct {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  imageUrl?: string | null;
-  stock: number;
-  featured: boolean;
-  origin?: string | null;
-  category?: {
-    slug: string;
-    nameEn: string;
-    namePt: string;
-  } | null;
-}
+import { AtlasProduct } from '@/lib/types';
+import { fetchProductById, fetchProducts } from '@/lib/atlas';
 
 export default function ProductDetailPage() {
   const params = useParams();
-  const productId = parseInt(params?.id as string || '0', 10);
+  const productId = params?.id as string || '';
   const { addToCart, t, formatPrice, getProductName, getProductDescription, locale } = useStore();
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
-  const [product, setProduct] = useState<ProductData | null>(null);
+  const [product, setProduct] = useState<AtlasProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [relatedProducts, setRelatedProducts] = useState<RelatedProduct[]>([]);
+  const [relatedProducts, setRelatedProducts] = useState<AtlasProduct[]>([]);
 
   useEffect(() => {
-    if (productId > 0) {
+    if (productId) {
       let cancelled = false;
-      fetch(`/api/products/${productId}`)
-        .then((res) => res.json())
+      fetchProductById(productId)
         .then((data) => {
           if (!cancelled) {
-            setProduct(data.product || null);
+            setProduct(data);
             setIsLoading(false);
           }
         })
@@ -86,32 +41,26 @@ export default function ProductDetailPage() {
   }, [productId]);
 
   useEffect(() => {
-    if (product?.category?.slug) {
-      fetch(`/api/products?categorySlug=${product.category.slug}&limit=5`)
-        .then((res) => res.json())
+    if (product?.category) {
+      fetchProducts({ category: product.category, limit: 5 })
         .then((data) => {
-          const related = (data.products || []).filter((p: any) => p.id !== productId).slice(0, 4);
+          const related = (data.products || []).filter((p) => p.id !== productId).slice(0, 4);
           setRelatedProducts(related);
         })
         .catch(() => setRelatedProducts([]));
     }
-  }, [product?.category?.slug, productId]);
+  }, [product?.category, productId]);
 
   const displayName = product ? getProductName(product) : '';
   const displayDesc = product ? getProductDescription(product) : '';
 
   const images: string[] = (() => {
     if (!product) return [];
-    try {
-      const parsed = typeof product.images === 'string' ? JSON.parse(product.images) : product.images;
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : product.imageUrl ? [product.imageUrl] : [];
-    } catch {
-      return product.imageUrl ? [product.imageUrl] : [];
-    }
+    return product.images && product.images.length > 0 ? product.images : [];
   })();
 
-  const isOutOfStock = product ? product.stock <= 0 : false;
-  const hasDiscount = product?.compareAtPrice && product.compareAtPrice > product.price;
+  const isOutOfStock = product ? (product.stock ?? 0) <= 0 : false;
+  const hasDiscount = product?.compareAtPrice && product.compareAtPrice > product.priceEur;
 
   const handleAddToCart = () => {
     if (!product || isOutOfStock || added) return;
@@ -120,8 +69,8 @@ export default function ProductDetailPage() {
         productId: product.id,
         name: product.name,
         nameEn: product.nameEn,
-        price: product.price,
-        imageUrl: product.imageUrl,
+        priceEur: product.priceEur,
+        image: product.images?.[0],
         sku: product.sku,
         stock: product.stock,
       });
@@ -181,8 +130,8 @@ export default function ProductDetailPage() {
           {product.category && (
             <>
               <span>/</span>
-              <Link href={`/store?cat=${product.category.slug}`} className="hover:text-[#1a3a3a] cursor-pointer transition-colors">
-                {getCategoryName({ namePt: product.category.namePt, nameEn: product.category.nameEn, nameFr: product.category.nameFr, nameDe: product.category.nameDe })}
+              <Link href={`/store?cat=${product.category}`} className="hover:text-[#1a3a3a] cursor-pointer transition-colors">
+                {t('cat.' + product.category)}
               </Link>
             </>
           )}
@@ -244,7 +193,7 @@ export default function ProductDetailPage() {
             {/* Price */}
             <div className="flex items-center gap-3 mb-6">
               <span className="text-2xl font-semibold text-[#1a3a3a]">
-                {formatPrice(product.price)}
+                {formatPrice(product.priceEur)}
               </span>
               {hasDiscount && (
                 <>
@@ -252,7 +201,7 @@ export default function ProductDetailPage() {
                     {formatPrice(product.compareAtPrice!)}
                   </span>
                   <span className="bg-[#b8962e] text-white text-xs font-medium px-2 py-0.5">
-                    -{Math.round(((product.compareAtPrice! - product.price) / product.compareAtPrice!) * 100)}%
+                    -{Math.round(((product.compareAtPrice! - product.priceEur) / product.compareAtPrice!) * 100)}%
                   </span>
                 </>
               )}
@@ -281,13 +230,13 @@ export default function ProductDetailPage() {
                     {quantity}
                   </span>
                   <button
-                    onClick={() => setQuantity(Math.min(product.stock, quantity + 1))}
+                    onClick={() => setQuantity(Math.min(product.stock ?? 999, quantity + 1))}
                     className="w-10 h-10 flex items-center justify-center text-[#6b6b6b] hover:text-[#1a3a3a] hover:bg-[#f8f5f0] transition-colors"
                   >
                     <Plus size={14} />
                   </button>
                 </div>
-                <span className="text-xs text-[#6b6b6b]">{product.stock} disponíveis</span>
+                <span className="text-xs text-[#6b6b6b]">{product.stock ?? 0} disponíveis</span>
               </div>
             )}
 
@@ -330,7 +279,7 @@ export default function ProductDetailPage() {
                 <div className="flex justify-between text-xs text-[#6b6b6b]">
                   <span className="uppercase tracking-wide">Categoria</span>
                   <span className="font-medium text-[#1a3a3a]">
-                    {getCategoryName({ namePt: product.category.namePt, nameEn: product.category.nameEn, nameFr: product.category.nameFr, nameDe: product.category.nameDe })}
+                    {t('cat.' + product.category)}
                   </span>
                 </div>
               )}

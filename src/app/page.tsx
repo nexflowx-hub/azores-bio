@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowRight, Star, Leaf, Award, Truck } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
+import { AtlasProduct, AtlasCategory } from '@/lib/types';
+import { fetchFeaturedProducts, fetchCategories } from '@/lib/atlas';
 
 const CATEGORY_ICONS: Record<string, string> = {
   queijos: '🧀',
@@ -21,58 +23,28 @@ const CATEGORY_ICONS: Record<string, string> = {
   outros: '🎁',
 };
 
-interface Category {
-  id: number;
-  slug: string;
-  namePt: string;
-  nameEn: string;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  productCount: number;
-}
-
-interface ProductData {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  imageUrl?: string | null;
-  stock: number;
-  featured: boolean;
-  origin?: string | null;
-  category?: {
-    slug: string;
-    nameEn: string;
-    namePt: string;
-  } | null;
-}
-
 export default function Home() {
   const { t, getCategoryName } = useStore();
   const [heroLoaded, setHeroLoaded] = useState(false);
-  const [featuredProducts, setFeaturedProducts] = useState<ProductData[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [featuredProducts, setFeaturedProducts] = useState<AtlasProduct[]>([]);
+  const [categories, setCategories] = useState<AtlasCategory[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => setHeroLoaded(true), 100);
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch featured products
+  // Fetch featured products via Atlas Adapter
   useEffect(() => {
-    fetch('/api/products/featured')
-      .then((res) => res.json())
-      .then((data) => setFeaturedProducts(Array.isArray(data) ? data : data.products ?? []))
+    fetchFeaturedProducts()
+      .then((products) => setFeaturedProducts(products))
       .catch(() => setFeaturedProducts([]));
   }, []);
 
-  // Fetch categories
+  // Fetch categories via Atlas Adapter
   useEffect(() => {
-    fetch('/api/categories')
-      .then((res) => res.json())
-      .then((data) => setCategories(Array.isArray(data) ? data : []))
+    fetchCategories()
+      .then((cats) => setCategories(cats))
       .catch(() => setCategories([]));
   }, []);
 
@@ -240,7 +212,7 @@ export default function Home() {
             {categories
               .filter((c) => (c.productCount ?? 0) > 0)
               .map((cat) => (
-                <Link key={cat.id} href={`/store?cat=${cat.slug}`}>
+                <Link key={cat.slug} href={`/store?cat=${cat.slug}`}>
                   <div className="group flex flex-col items-center gap-3 bg-white p-5 cursor-pointer hover:bg-[#1a3a3a] transition-all duration-300">
                     <span className="text-3xl">{CATEGORY_ICONS[cat.slug] ?? '🌿'}</span>
                     <div className="text-center">

@@ -1,72 +1,24 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { AtlasProduct, AtlasCategory } from '@/lib/types';
 
-// ─── Types ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────
 export type Locale = 'pt' | 'en' | 'fr' | 'de';
 export type Currency = 'EUR' | 'USD' | 'GBP';
 
 export interface CartItem {
-  productId: number;
+  productId: string;       // UUID from Atlas
   name: string;
   nameEn?: string | null;
-  price: number;
+  priceEur: number;        // Always EUR, always number
   quantity: number;
-  imageUrl?: string | null;
+  image?: string | null;   // First image URL
   sku?: string | null;
-  stock: number;
+  stock?: number;
 }
 
-export interface Category {
-  id: number;
-  slug: string;
-  nameEn: string;
-  namePt: string;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  description?: string | null;
-  imageUrl?: string | null;
-  sortOrder: number;
-  productCount: number;
-}
-
-export interface Product {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  description?: string | null;
-  descriptionEn?: string | null;
-  descriptionFr?: string | null;
-  descriptionDe?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  stock: number;
-  categoryId?: number | null;
-  imageUrl?: string | null;
-  images?: string | null;
-  weight?: number | null;
-  origin?: string | null;
-  featured: boolean;
-  active: boolean;
-  tags?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  category?: {
-    id: number;
-    slug: string;
-    nameEn: string;
-    namePt: string;
-    nameFr?: string | null;
-    nameDe?: string | null;
-    description?: string | null;
-    imageUrl?: string | null;
-  } | null;
-}
-
-// ─── Translations ─────────────────────────────────────────────────────────
+// ─── Translations ─────────────────────────────────────────────────
 const translations: Record<string, Record<string, string>> = {
   pt: {
     'nav.home': 'Início',
@@ -106,7 +58,7 @@ const translations: Record<string, Record<string, string>> = {
     'cart.checkout': 'Finalizar Compra',
     'cart.free_shipping': 'Envio gratuito a partir de €75',
     'cart.quantity': 'Quantidade',
-    'checkout.title': 'Finalizar Compra',
+    'checkout.title': 'Finalizar Encomenda',
     'store.title': 'Toda a Loja',
     'store.all': 'Todos os Produtos',
     'store.filter': 'Filtrar',
@@ -191,7 +143,7 @@ const translations: Record<string, Record<string, string>> = {
     'home.featured': 'Produits en Vedette',
     'home.categories': 'Catégories',
     'home.about.title': 'De la Terre Volcanique à Votre Maison',
-    'home.about.text': 'Les Açores sont un archipel unique au cœur de l\'Atlantique, où la nature volcanique crée des conditions exceptionnelles pour produire des aliments de qualité exceptionnelle.',
+    'home.about.text': "Les Açores sont un archipel unique au cœur de l'Atlantique, où la nature volcanique crée des conditions exceptionnelles pour produire des aliments de qualité exceptionnelle.",
     'cat.queijos': 'Fromages',
     'cat.manteigas': 'Beurres',
     'cat.conservas': 'Conserves',
@@ -230,7 +182,7 @@ const translations: Record<string, Record<string, string>> = {
     'store.results': 'produits',
     'store.empty': 'Aucun produit trouvé',
     'footer.legal': 'Azores Meet, Lda | TVA: 513553169',
-    'footer.address': 'Macela, 9875-030 Santo Antão, Calheta (São Jorge), Açores',
+    'footer.address': "Macela, 9875-030 Santo Antão, Calheta (São Jorge), Açores",
     'footer.rights': 'Tous droits réservés',
     'footer.shipping': 'Livraison & Retours',
     'footer.privacy': 'Politique de Confidentialité',
@@ -294,11 +246,11 @@ const translations: Record<string, Record<string, string>> = {
   },
 };
 
-// ─── Exchange rates ───────────────────────────────────────────────────────
+// ─── Exchange rates ───────────────────────────────────────────────
 const EXCHANGE_RATES: Record<Currency, number> = { EUR: 1, USD: 1.08, GBP: 0.86 };
 const CURRENCY_SYMBOLS: Record<Currency, string> = { EUR: '€', USD: '$', GBP: '£' };
 
-// ─── Context ──────────────────────────────────────────────────────────────
+// ─── Context ──────────────────────────────────────────────────────
 interface StoreContextType {
   locale: Locale;
   setLocale: (locale: Locale) => void;
@@ -307,16 +259,16 @@ interface StoreContextType {
   t: (key: string) => string;
   cart: CartItem[];
   addToCart: (item: Omit<CartItem, 'quantity'>) => void;
-  removeFromCart: (productId: number) => void;
-  updateQuantity: (productId: number, quantity: number) => void;
+  removeFromCart: (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
   cartCount: number;
   cartTotal: number;
-  formatPrice: (price: number) => string;
-  convertPrice: (price: number) => number;
+  formatPrice: (priceEur: number) => string;
+  convertPrice: (priceEur: number) => number;
   isCartOpen: boolean;
   setCartOpen: (open: boolean) => void;
-  getCategoryName: (category: { namePt: string; nameEn: string; nameFr?: string | null; nameDe?: string | null }) => string;
+  getCategoryName: (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null }) => string;
   getProductName: (product: { name: string; nameEn?: string | null; nameFr?: string | null; nameDe?: string | null }) => string;
   getProductDescription: (product: { description?: string | null; descriptionEn?: string | null; descriptionFr?: string | null; descriptionDe?: string | null }) => string;
 }
@@ -352,22 +304,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isCartOpen, setCartOpen] = useState(false);
   const hasMounted = useRef(false);
 
-  // Mark mounted after first render
-  useEffect(() => {
-    hasMounted.current = true;
-  }, []);
+  useEffect(() => { hasMounted.current = true; }, []);
 
-  // Persist cart
   useEffect(() => {
     if (hasMounted.current) localStorage.setItem(CART_KEY, JSON.stringify(cart));
   }, [cart]);
 
-  // Persist locale
   useEffect(() => {
     if (hasMounted.current) localStorage.setItem(LOCALE_KEY, locale);
   }, [locale]);
 
-  // Persist currency
   useEffect(() => {
     if (hasMounted.current) localStorage.setItem(CURRENCY_KEY, currency);
   }, [currency]);
@@ -386,8 +332,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const formatPrice = useCallback(
-    (price: number): string => {
-      const converted = convertPrice(price);
+    (priceEur: number): string => {
+      const converted = convertPrice(priceEur);
       return `${CURRENCY_SYMBOLS[currency]}${converted.toFixed(2)}`;
     },
     [currency, convertPrice]
@@ -399,7 +345,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (existing) {
         return prev.map((i) =>
           i.productId === item.productId
-            ? { ...i, quantity: Math.min(i.quantity + 1, i.stock) }
+            ? { ...i, quantity: Math.min(i.quantity + 1, i.stock ?? 999) }
             : i
         );
       }
@@ -408,17 +354,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCartOpen(true);
   }, []);
 
-  const removeFromCart = useCallback((productId: number) => {
+  const removeFromCart = useCallback((productId: string) => {
     setCart((prev) => prev.filter((i) => i.productId !== productId));
   }, []);
 
-  const updateQuantity = useCallback((productId: number, quantity: number) => {
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
     if (quantity <= 0) {
       setCart((prev) => prev.filter((i) => i.productId !== productId));
     } else {
       setCart((prev) =>
         prev.map((i) =>
-          i.productId === productId ? { ...i, quantity: Math.min(quantity, i.stock) } : i
+          i.productId === productId ? { ...i, quantity: Math.min(quantity, i.stock ?? 999) } : i
         )
       );
     }
@@ -427,16 +373,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const clearCart = useCallback(() => setCart([]), []);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.priceEur * item.quantity, 0);
 
   const getCategoryName = useCallback(
-    (category: { namePt: string; nameEn: string; nameFr?: string | null; nameDe?: string | null }): string => {
-      switch (locale) {
-        case 'en': return category.nameEn || category.namePt;
-        case 'fr': return category.nameFr || category.nameEn || category.namePt;
-        case 'de': return category.nameDe || category.nameEn || category.namePt;
-        default: return category.namePt;
-      }
+    (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null }): string => {
+      // Prefer .name which Atlas provides, fallback to locale-specific names
+      if (locale === 'pt') return category.namePt || category.name || category.slug;
+      if (locale === 'en') return category.nameEn || category.name || category.slug;
+      if (locale === 'fr') return category.nameFr || category.nameEn || category.name || category.slug;
+      if (locale === 'de') return category.nameDe || category.nameEn || category.name || category.slug;
+      return category.name || category.slug;
     },
     [locale]
   );

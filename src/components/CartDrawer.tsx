@@ -103,9 +103,9 @@ export default function CartDrawer() {
               >
                 {/* Image */}
                 <div className="w-20 h-20 bg-[#ede8e0] flex-shrink-0 overflow-hidden">
-                  {item.imageUrl ? (
+                  {item.image ? (
                     <img
-                      src={item.imageUrl}
+                      src={item.image}
                       alt={item.name}
                       className="w-full h-full object-cover"
                     />
@@ -122,7 +122,7 @@ export default function CartDrawer() {
                     {item.name}
                   </p>
                   <p className="text-sm font-semibold text-[#1a3a3a] mt-1">
-                    {formatPrice(item.price * item.quantity)}
+                    {formatPrice(item.priceEur * item.quantity)}
                   </p>
 
                   {/* Quantity */}
@@ -138,7 +138,7 @@ export default function CartDrawer() {
                     </span>
                     <button
                       onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                      disabled={item.quantity >= item.stock}
+                      disabled={item.quantity >= (item.stock ?? 999)}
                       className="w-6 h-6 border border-[#ede8e0] flex items-center justify-center text-[#6b6b6b] hover:border-[#1a3a3a] hover:text-[#1a3a3a] transition-colors disabled:opacity-40"
                     >
                       <Plus size={12} />

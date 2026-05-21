@@ -4,31 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ShoppingBag, Check } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
-
-interface Product {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  imageUrl?: string | null;
-  stock: number;
-  featured?: boolean;
-  origin?: string | null;
-  categoryName?: string | null;
-  categorySlug?: string | null;
-  category?: {
-    slug: string;
-    nameEn: string;
-    namePt: string;
-  } | null;
-}
+import { AtlasProduct } from '@/lib/types';
 
 interface ProductCardProps {
-  product: Product;
+  product: AtlasProduct;
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
@@ -38,11 +17,14 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   const displayName = getProductName(product);
 
-  const isOutOfStock = product.stock <= 0;
-  const hasDiscount = product.compareAtPrice && product.compareAtPrice > product.price;
+  const isOutOfStock = (product.stock ?? 0) <= 0;
+  const hasDiscount = product.compareAtPrice && product.compareAtPrice > product.priceEur;
   const discountPct = hasDiscount
-    ? Math.round(((product.compareAtPrice! - product.price) / product.compareAtPrice!) * 100)
+    ? Math.round(((product.compareAtPrice! - product.priceEur) / product.compareAtPrice!) * 100)
     : 0;
+
+  // First image from normalized images array
+  const primaryImage = product.images?.[0] || null;
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -50,11 +32,11 @@ export default function ProductCard({ product }: ProductCardProps) {
     if (isOutOfStock || added) return;
 
     addToCart({
-      productId: product.id,
+      productId: product.id,             // UUID
       name: product.name,
       nameEn: product.nameEn,
-      price: product.price,
-      imageUrl: product.imageUrl,
+      priceEur: product.priceEur,        // Always number
+      image: primaryImage,
       sku: product.sku,
       stock: product.stock,
     });
@@ -68,9 +50,9 @@ export default function ProductCard({ product }: ProductCardProps) {
       <div className="group bg-white cursor-pointer overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#1a3a3a]/10">
         {/* Image */}
         <div className="relative aspect-square overflow-hidden bg-[#f0ebe3]">
-          {product.imageUrl && !imgError ? (
+          {primaryImage && !imgError ? (
             <img
-              src={product.imageUrl}
+              src={primaryImage}
               alt={displayName}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               onError={() => setImgError(true)}
@@ -149,7 +131,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           </h3>
           <div className="flex items-center gap-2">
             <span className="text-base font-semibold text-[#1a3a3a]">
-              {formatPrice(product.price)}
+              {formatPrice(product.priceEur)}
             </span>
             {hasDiscount && (
               <span className="text-xs text-[#6b6b6b] line-through">

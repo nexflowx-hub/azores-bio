@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { SlidersHorizontal, Search, X, ChevronDown } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
+import { AtlasProduct, AtlasCategory } from '@/lib/types';
+import { fetchProducts, fetchCategories } from '@/lib/atlas';
 
 const SORT_OPTIONS = [
   { value: 'featured', labelKey: 'store.sort.featured' },
@@ -15,38 +17,6 @@ const SORT_OPTIONS = [
 ] as const;
 
 type SortValue = (typeof SORT_OPTIONS)[number]['value'];
-
-interface CategoryData {
-  id: number;
-  slug: string;
-  namePt: string;
-  nameEn: string;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  productCount: number;
-}
-
-interface ProductData {
-  id: number;
-  sku?: string | null;
-  name: string;
-  nameEn?: string | null;
-  nameFr?: string | null;
-  nameDe?: string | null;
-  price: number;
-  compareAtPrice?: number | null;
-  imageUrl?: string | null;
-  stock: number;
-  featured: boolean;
-  origin?: string | null;
-  category?: {
-    slug: string;
-    nameEn: string;
-    namePt: string;
-    nameFr?: string | null;
-    nameDe?: string | null;
-  } | null;
-}
 
 function StorePageContent() {
   const searchParams = useSearchParams();
@@ -59,8 +29,8 @@ function StorePageContent() {
   const [searchInput, setSearchInput] = useState('');
   const [sortOpen, setSortOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [products, setProducts] = useState<ProductData[]>([]);
-  const [categories, setCategories] = useState<CategoryData[]>([]);
+  const [products, setProducts] = useState<AtlasProduct[]>([]);
+  const [categories, setCategories] = useState<AtlasCategory[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -70,8 +40,7 @@ function StorePageContent() {
 
   // Fetch categories
   useEffect(() => {
-    fetch('/api/categories')
-      .then((res) => res.json())
+    fetchCategories()
       .then((data) => setCategories(Array.isArray(data) ? data : []))
       .catch(() => setCategories([]));
   }, []);
@@ -81,15 +50,14 @@ function StorePageContent() {
 
   // Fetch products
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (effectiveCategory && effectiveCategory !== 'all') params.set('categorySlug', effectiveCategory);
-    if (search) params.set('search', search);
-    params.set('sort', sort);
-    params.set('limit', '48');
-
     let cancelled = false;
-    fetch(`/api/products?${params.toString()}`)
-      .then((res) => res.json())
+
+    fetchProducts({
+      ...(effectiveCategory && effectiveCategory !== 'all' ? { category: effectiveCategory } : {}),
+      ...(search ? { search } : {}),
+      sort,
+      limit: 48,
+    })
       .then((data) => {
         if (!cancelled) {
           setProducts(data.products || []);
@@ -232,7 +200,7 @@ function StorePageContent() {
               {categories
                 .filter((c) => (c.productCount ?? 0) > 0)
                 .map((cat) => (
-                  <li key={cat.id}>
+                  <li key={cat.slug}>
                     <button
                       onClick={() => setSelectedCat(cat.slug)}
                       className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
@@ -278,7 +246,7 @@ function StorePageContent() {
                     .filter((c) => (c.productCount ?? 0) > 0)
                     .map((cat) => (
                       <button
-                        key={cat.id}
+                        key={cat.slug}
                         onClick={() => {
                           setSelectedCat(cat.slug);
                           setFiltersOpen(false);
