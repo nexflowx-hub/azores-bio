@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Check, Copy, Landmark, Smartphone, Building2, CreditCard } from 'lucide-react';
+import { Check, Copy, Landmark, Smartphone, Building2, CreditCard, Wallet } from 'lucide-react';
 import { Suspense } from 'react';
 
 function SuccessContent() {
@@ -46,8 +46,9 @@ function SuccessContent() {
                 <p><strong>Entidade:</strong> {params.get('entity') || '—'}</p>
                 <p><strong>Referência:</strong> {params.get('reference') || '—'}</p>
                 <p><strong>Valor:</strong> €{params.get('amount') || '—'}</p>
+                {params.get('deadline') && <p><strong>Data Limite:</strong> {params.get('deadline')}</p>}
               </div>
-              <p className="text-[10px] text-purple-600 mt-3">Pague num terminal Multibanco ou no Home Banking no prazo de 48 horas.</p>
+              <p className="text-[10px] text-purple-600 mt-3">Pague num terminal Multibanco ou no Home Banking{params.get('deadline') ? ` até ${params.get('deadline')}` : ' no prazo de 48 horas'}.</p>
             </div>
           )}
 
@@ -76,13 +77,13 @@ function SuccessContent() {
             </div>
           )}
 
-          {type === 'card' && (
-            <div className="bg-[#f8f5f0] border border-[#ede8e0] p-6 mb-6 text-left">
+          {(type === 'card' || type === 'crypto') && (
+            <div className={type === 'crypto' ? 'bg-emerald-50 border border-emerald-200 p-6 mb-6 text-left' : 'bg-[#f8f5f0] border border-[#ede8e0] p-6 mb-6 text-left'}>
               <div className="flex items-center gap-2 mb-4">
-                <CreditCard size={20} className="text-[#1a3a3a]" />
-                <h2 className="text-lg font-medium text-[#1a3a3a]">Pagamento com Cartão</h2>
+                {type === 'crypto' ? <Wallet size={20} className="text-emerald-600" /> : <CreditCard size={20} className="text-[#1a3a3a]" />}
+                <h2 className={type === 'crypto' ? 'text-lg font-medium text-emerald-800' : 'text-lg font-medium text-[#1a3a3a]'}>{type === 'crypto' ? 'Pagamento Web3' : 'Pagamento com Cartão'}</h2>
               </div>
-              <p className="text-sm text-[#6b6b6b]">O seu pagamento foi processado com sucesso. A encomenda será enviada nos próximos dias úteis.</p>
+              <p className={type === 'crypto' ? 'text-sm text-emerald-700' : 'text-sm text-[#6b6b6b]'}>O seu pagamento foi processado com sucesso. A encomenda será enviada nos próximos dias úteis.</p>
             </div>
           )}
 

@@ -1,14 +1,22 @@
+// ═══════════════════════════════════════════════════════════════
+// AZORES.BIO — Type System v2.0 (Atlas Core V2 Dumb Client)
+// ═══════════════════════════════════════════════════════════════
+
 // ─── Payment Types ──────────────────────────────────────────
 export type PaymentMethod = 'card' | 'mbway' | 'multibanco' | 'sepa' | 'crypto';
 
+/**
+ * ActionType returned by Atlas Core V2 on POST /checkout/intent.
+ * The Core decides routing based on its DB payment_rules table.
+ */
 export type ActionType =
-  | 'STRIPE_ELEMENTS'
-  | 'SHOW_CRYPTO_WIDGET'
-  | 'REDIRECT_CRYPTO'
-  | 'SHOW_MBWAY'
-  | 'SHOW_MULTIBANCO'
-  | 'SHOW_SEPA'
-  | 'REDIRECT';
+  | 'STRIPE_ELEMENTS'      // Core routed to STRIPE_PT_002 → card provider
+  | 'SHOW_CRYPTO_WIDGET'   // Core routed to STRIPE_CRYPTO / ONRAMP_MONEY
+  | 'REDIRECT_CRYPTO'      // Core routed to external crypto gateway
+  | 'SHOW_MBWAY'           // Core routed to Proxy MBWAY
+  | 'SHOW_MULTIBANCO'      // Core routed to Proxy Multibanco
+  | 'SHOW_SEPA'            // Core routed to SEPA bank transfer
+  | 'REDIRECT';            // Generic redirect
 
 // ─── Atlas Product (raw from API — before normalization) ────
 export interface AtlasProductRaw {
@@ -38,7 +46,7 @@ export interface AtlasProductRaw {
 
 // ─── Normalized Product (after adapter) ─────────────────────
 export interface AtlasProduct {
-  id: string;             // UUID
+  id: string;             // UUID guaranteed by Atlas Core
   name: string;
   slug?: string;
   priceEur: number;       // Always number after normalization
@@ -75,12 +83,19 @@ export interface AtlasCategory {
   icon?: string;
 }
 
-// ─── Checkout Config (from Atlas) ───────────────────────────
+// ─── Checkout Config (from Core DB payment_rules) ───────────
 export interface CheckoutConfig {
   paymentMethods: PaymentMethodConfig[];
   stripePublishableKey?: string;
   shipping?: ShippingConfig;
   freeShippingThreshold?: number;
+  shippingCost?: number;
+  cryptoDiscountPct?: number;
+  cryptoWallet?: string;     // Destination wallet from Core DB
+  iban?: string;             // SEPA IBAN from Core DB
+  beneficiary?: string;      // SEPA beneficiary from Core DB
+  currency?: string;         // Default: "EUR"
+  paymentRoutes?: PaymentRouteConfig[];  // Route rules from Core DB
 }
 
 export interface PaymentMethodConfig {
@@ -90,6 +105,16 @@ export interface PaymentMethodConfig {
   badge?: string;
   icon?: string;
   requiresPhone?: boolean;
+  requiresKYC?: boolean;     // If true → NIF + birthDate mandatory
+  provider?: string;         // e.g. "STRIPE_PT_002", "STRIPE_CRYPTO", "ONRAMP_MONEY"
+}
+
+/** Dynamic payment route from Core DB */
+export interface PaymentRouteConfig {
+  method: PaymentMethod;
+  provider: string;          // e.g. "STRIPE_PT_002", "PROXY_MBWAY", "ONRAMP_MONEY"
+  gateway?: string;          // e.g. "stripe", "proxy.nexflowx.tech"
+  wallet?: string;           // crypto destination wallet (if applicable)
 }
 
 export interface ShippingConfig {
@@ -106,17 +131,14 @@ export interface ShippingMethodConfig {
   freeAbove?: number;
 }
 
-// ─── Checkout Intent Request ────────────────────────────────
+// ─── Checkout Intent Request (Core V2 Contract) ─────────────
 export interface CheckoutIntentRequest {
-  storeSlug: string;
-  items: CheckoutItem[];
+  store: string;                     // "azores-bio"
+  method: PaymentMethod;             // "card" | "multibanco" | "mbway" | "crypto"
+  amount: number;                    // Final amount in EUR (after discounts)
+  currency: string;                  // "EUR"
   customer: CheckoutCustomer;
-  shipping: CheckoutShipping;
-  payment: {
-    provider: string;
-    phone?: string;
-  };
-  totalAmount: number;
+  items: CheckoutItem[];
 }
 
 export interface CheckoutItem {
@@ -126,36 +148,52 @@ export interface CheckoutItem {
 }
 
 export interface CheckoutCustomer {
-  name: string;
   email: string;
+  fullName: string;
+  nif?: string;            // NIF / SSN — mandatory for crypto (KYC/AML)
+  birthDate?: string;       // YYYY-MM-DD — mandatory for crypto (KYC/AML ≥18)
   phone?: string;
-  vat?: string;
-  dob?: string;
-  address: string;
-  city: string;
-  postalCode: string;
-  country: string;
+  address?: string;
+  city?: string;
+  postalCode?: string;
+  country?: string;
 }
 
-export interface CheckoutShipping {
-  method: string;
-  cost: number;
-}
-
-// ─── Checkout Intent Response ───────────────────────────────
+// ─── Checkout Intent Response (Core V2) ─────────────────────
 export interface AtlasCheckoutResponse {
   transactionId: string;
   actionType: ActionType;
   payload: {
-    clientSecret?: string;
-    publishableKey?: string;
+    clientSecret?: string;       // For STRIPE_ELEMENTS / SHOW_CRYPTO_WIDGET
+    publishableKey?: string;     // Stripe public key for the specific route
     orderId?: string;
-    phone?: string;
-    entity?: string;
-    reference?: string;
+    phone?: string;              // MBWAY phone
+    entity?: string;             // Multibanco entity
+    reference?: string;          // Multibanco reference
+    deadline?: string;           // Multibanco payment deadline
     amount?: number;
-    iban?: string;
-    beneficiary?: string;
-    url?: string;
+    iban?: string;               // SEPA IBAN
+    beneficiary?: string;        // SEPA beneficiary
+    cryptoWallet?: string;       // Destination wallet for crypto
+    url?: string;                // Redirect URL
   };
+}
+
+// ─── CRM Stock Settlement Request ───────────────────────────
+export interface StockSettlementRequest {
+  store: string;
+  orderId: string;
+  items: CheckoutItem[];
+}
+
+// ─── Cart Item (Frontend State) ─────────────────────────────
+export interface CartItem {
+  productId: string;       // UUID from Atlas
+  name: string;
+  nameEn?: string | null;
+  priceEur: number;        // Always EUR, always number
+  quantity: number;
+  image?: string | null;   // First image URL
+  sku?: string | null;
+  stock?: number;
 }

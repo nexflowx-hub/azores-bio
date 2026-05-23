@@ -1,3 +1,18 @@
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * Atlas Adapter v2.0 — Universal Entry Point
+ * AZORES.BIO Dumb Client / Relay Node
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * The frontend NEVER calls payment gateways or proxy directly.
+ * All communication flows through Atlas Core V2, which decides
+ * internal routing based on its DB payment_rules table.
+ *
+ * Configuration (only 2 env vars):
+ *   NEXT_PUBLIC_ATLAS_API_URL  → https://api.atlasglobal.digital
+ *   NEXT_PUBLIC_STORE_SLUG     → azores-bio
+ */
+
 import {
   AtlasProductRaw,
   AtlasProduct,
@@ -5,7 +20,7 @@ import {
   CheckoutConfig,
   CheckoutIntentRequest,
   AtlasCheckoutResponse,
-  PaymentMethod,
+  StockSettlementRequest,
 } from './types';
 
 // ─── Configuration ──────────────────────────────────────────
@@ -16,7 +31,12 @@ const STORE_SLUG =
 
 // ─── Normalization ──────────────────────────────────────────
 
-/** Convert raw Atlas product into a consistent, typed shape. */
+/**
+ * Convert raw Atlas product into a consistent, typed shape.
+ * - priceEur: string | number → number  (safe for math in UI)
+ * - images: string | string[] | JSONb → string[]  (safe for render)
+ * - tags: string | string[] → string[]
+ */
 function normalizeProduct(raw: AtlasProductRaw): AtlasProduct {
   // priceEur: string | number → number
   const priceEur =
@@ -31,7 +51,7 @@ function normalizeProduct(raw: AtlasProductRaw): AtlasProduct {
       : raw.compareAtPrice
     : undefined;
 
-  // images: string | string[] | JSON string → string[]
+  // images: string | string[] | JSONb → string[]
   let images: string[] = [];
   if (Array.isArray(raw.images)) {
     images = raw.images.filter(Boolean);
@@ -88,7 +108,9 @@ function normalizeProduct(raw: AtlasProductRaw): AtlasProduct {
   };
 }
 
-// ─── Products ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// CATALOG — Product & Category Reads
+// ═══════════════════════════════════════════════════════════════
 
 export async function fetchProducts(params?: {
   category?: string;
@@ -132,8 +154,6 @@ export async function fetchProductById(
   return normalizeProduct(data.product ?? data);
 }
 
-// ─── Categories ──────────────────────────────────────────────
-
 export async function fetchCategories(): Promise<AtlasCategory[]> {
   const res = await fetch(
     `${API_URL}/api/v1/storefront/categories?store=${STORE_SLUG}`,
@@ -145,8 +165,6 @@ export async function fetchCategories(): Promise<AtlasCategory[]> {
   return data.categories ?? data ?? [];
 }
 
-// ─── Featured Products ───────────────────────────────────────
-
 export async function fetchFeaturedProducts(
   limit = 8,
 ): Promise<AtlasProduct[]> {
@@ -154,33 +172,45 @@ export async function fetchFeaturedProducts(
   return products.filter((p) => p.featured).slice(0, limit);
 }
 
-// ─── Checkout Config ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// CHECKOUT CONFIG — Dynamic Payment Rules from Core DB
+// ═══════════════════════════════════════════════════════════════
 
-export async function fetchCheckoutConfig(): Promise<CheckoutConfig> {
+/**
+ * Fetch checkout configuration from Atlas Core.
+ * This includes: payment methods, routes, shipping, discount rules,
+ * crypto wallet, SEPA IBAN, and Stripe publishable keys.
+ * The Core reads these from its payment_rules DB table.
+ */
+export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
   const res = await fetch(
     `${API_URL}/api/v1/storefront/checkout-config?store=${STORE_SLUG}`,
+    { next: { revalidate: 300 } } as RequestInit,
   );
   if (!res.ok) throw new Error(`Atlas checkout-config error: ${res.status}`);
   return res.json();
 }
 
-// ─── Checkout Intent ─────────────────────────────────────────
+/** Backward-compatible alias */
+export const fetchCheckoutConfig = fetchStoreCheckoutConfig;
 
-export function mapPaymentProvider(method: PaymentMethod): string {
-  const mapping: Record<PaymentMethod, string> = {
-    card: 'CARD',
-    mbway: 'MBWAY',
-    multibanco: 'MULTIBANCO',
-    sepa: 'SEPA',
-    crypto: 'CRYPTO',
-  };
-  return mapping[method] || method.toUpperCase();
-}
+// ═══════════════════════════════════════════════════════════════
+// CHECKOUT INTENT — Payment Submission to Core V2
+// ═══════════════════════════════════════════════════════════════
 
-export async function processCheckout(
+/**
+ * Submit a checkout intent to Atlas Core V2.
+ * The Core creates the order + payment intent and returns
+ * an actionType with the necessary payload for the frontend
+ * to render the appropriate payment flow.
+ *
+ * Endpoint: POST /api/v1/checkout/intent
+ * The Core decides internal routing based on payment_rules DB table.
+ */
+export async function createPaymentIntent(
   payload: CheckoutIntentRequest,
 ): Promise<AtlasCheckoutResponse> {
-  const res = await fetch(`${API_URL}/api/v1/checkout/pay`, {
+  const res = await fetch(`${API_URL}/api/v1/checkout/intent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -192,7 +222,41 @@ export async function processCheckout(
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(
-      errorData.message || `Checkout error: ${res.status}`,
+      errorData.message || `Checkout intent error: ${res.status}`,
+    );
+  }
+
+  return res.json();
+}
+
+/** Backward-compatible alias */
+export const processCheckout = createPaymentIntent;
+
+// ═══════════════════════════════════════════════════════════════
+// CRM — Stock Settlement & Order Confirmation
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * After a successful payment confirmation (callback or webhook),
+ * notify the Core CRM to decrement stock and move the order
+ * to "Pending Settlement" status.
+ */
+export async function settleStock(
+  payload: StockSettlementRequest,
+): Promise<{ success: boolean; orderId: string; status: string }> {
+  const res = await fetch(`${API_URL}/api/v1/crm/order/settle`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-store-slug': STORE_SLUG,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData.message || `Stock settlement error: ${res.status}`,
     );
   }
 

@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ShoppingBag, CreditCard, MapPin, User, Loader2,
-  Truck, Snowflake, Smartphone, Landmark, Building2,
-  Wallet, Zap, ShieldCheck, ArrowRight,
+  Smartphone, Landmark, Building2,
+  Wallet, Zap, ShieldCheck, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import { toast } from 'sonner';
-import { fetchCheckoutConfig, processCheckout, mapPaymentProvider } from '@/lib/atlas';
+import { fetchStoreCheckoutConfig, createPaymentIntent, settleStock } from '@/lib/atlas';
 import { PaymentMethod, AtlasCheckoutResponse, CheckoutConfig } from '@/lib/types';
 import dynamic from 'next/dynamic';
 
@@ -58,22 +58,6 @@ const PAYMENT_ICONS: Record<string, React.ReactNode> = {
   crypto: <Wallet size={22} />,
 };
 
-const PAYMENT_LABELS: Record<string, string> = {
-  card: 'Cartão de Crédito/Débito',
-  mbway: 'MBWAY',
-  multibanco: 'Multibanco',
-  sepa: 'Transferência SEPA',
-  crypto: 'Pagamento Web3 (Cartão Bancário)',
-};
-
-const PAYMENT_SUBTITLES: Record<string, string> = {
-  card: 'Visa, Mastercard, etc.',
-  mbway: 'Confirme na App',
-  multibanco: 'Referência de pagamento',
-  sepa: 'Transferência bancária',
-  crypto: 'Poupe 5% — pague com cartão via Stripe. Sem carteira crypto.',
-};
-
 export default function CheckoutPage() {
   const router = useRouter();
   const { cart, cartTotal, clearCart, formatPrice } = useStore();
@@ -83,7 +67,7 @@ export default function CheckoutPage() {
   const [checkoutConfig, setCheckoutConfig] = useState<CheckoutConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
 
-  // Stripe / Crypto widget state
+  // Payment widget state
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [publishableKey, setPublishableKey] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
@@ -101,15 +85,36 @@ export default function CheckoutPage() {
   const [errors, setErrors] = useState<Partial<FormData>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // ─── Derived values ─────────────────────────────────────
-  const shippingCost = cartTotal >= 75 ? 0 : 6.5;
-  const total = cartTotal + shippingCost;
-  const cryptoDiscount = paymentMethod === 'crypto' ? Number((total * 0.05).toFixed(2)) : 0;
-  const finalTotal = paymentMethod === 'crypto' ? Number((total * 0.95).toFixed(2)) : total;
+  // ─── Dynamic values from Core Config ───────────────────
+  const freeShippingThreshold = checkoutConfig?.freeShippingThreshold ?? 75;
+  const baseShippingCost = checkoutConfig?.shippingCost ?? 6.5;
+  const cryptoDiscountPct = checkoutConfig?.cryptoDiscountPct ?? 5;
+  const sepaIban = checkoutConfig?.iban;
+  const sepaBeneficiary = checkoutConfig?.beneficiary;
+  const currency = checkoutConfig?.currency ?? 'EUR';
 
-  // ─── Fetch checkout config from Atlas ───────────────────
+  const shippingCost = cartTotal >= freeShippingThreshold ? 0 : baseShippingCost;
+  const total = cartTotal + shippingCost;
+  const cryptoDiscount = paymentMethod === 'crypto' ? Number((total * cryptoDiscountPct / 100).toFixed(2)) : 0;
+  const finalTotal = paymentMethod === 'crypto' ? Number((total * (1 - cryptoDiscountPct / 100)).toFixed(2)) : total;
+
+  // ─── KYC compliance check for Crypto ───────────────────
+  const isKycComplete = paymentMethod !== 'crypto' || (
+    form.vat.trim().length >= 5 &&
+    form.dob !== '' &&
+    (() => {
+      const bd = new Date(form.dob);
+      const today = new Date();
+      let age = today.getFullYear() - bd.getFullYear();
+      const m = today.getMonth() - bd.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--;
+      return age >= 18;
+    })()
+  );
+
+  // ─── Fetch checkout config from Atlas Core ─────────────
   useEffect(() => {
-    fetchCheckoutConfig()
+    fetchStoreCheckoutConfig()
       .then((config) => {
         setCheckoutConfig(config);
         if (config.paymentMethods?.length > 0) {
@@ -121,11 +126,11 @@ export default function CheckoutPage() {
         // Fallback: default payment methods
         setCheckoutConfig({
           paymentMethods: [
-            { method: 'card', label: 'Cartão de Crédito/Débito' },
-            { method: 'mbway', label: 'MBWAY', requiresPhone: true },
-            { method: 'multibanco', label: 'Multibanco' },
-            { method: 'sepa', label: 'Transferência SEPA' },
-            { method: 'crypto', label: 'Pagamento Web3', description: '-5% Desconto' },
+            { method: 'card', label: 'Cartão de Crédito/Débito', provider: 'STRIPE_PT_002' },
+            { method: 'mbway', label: 'MBWAY', requiresPhone: true, provider: 'PROXY_MBWAY' },
+            { method: 'multibanco', label: 'Multibanco', provider: 'PROXY_MULTIBANCO' },
+            { method: 'sepa', label: 'Transferência SEPA', provider: 'PROXY_SEPA' },
+            { method: 'crypto', label: 'Pagamento Web3', description: `-${cryptoDiscountPct}% Desconto`, requiresKYC: true, provider: 'STRIPE_CRYPTO' },
           ],
         });
       })
@@ -147,6 +152,7 @@ export default function CheckoutPage() {
     if (!form.postal.trim()) newErrors.postal = 'Código postal obrigatório';
     if (!form.country.trim()) newErrors.country = 'País obrigatório';
 
+    // MBWAY: phone required
     if (paymentMethod === 'mbway') {
       if (!form.mbwayPhone.trim()) {
         newErrors.mbwayPhone = 'Número obrigatório para MBWAY';
@@ -155,18 +161,23 @@ export default function CheckoutPage() {
       }
     }
 
+    // Crypto: KYC/AML compliance — NIF + birthDate mandatory
     if (paymentMethod === 'crypto') {
       if (!form.phone.trim()) newErrors.phone = 'Telefone obrigatório para Crypto';
-      if (!form.vat.trim()) newErrors.vat = 'NIF obrigatório para Crypto';
+      if (!form.vat.trim()) {
+        newErrors.vat = 'NIF/SSN obrigatório (KYC)';
+      } else if (form.vat.trim().length < 5) {
+        newErrors.vat = 'NIF/SSN inválido';
+      }
       if (!form.dob) {
-        newErrors.dob = 'Data de nascimento obrigatória';
+        newErrors.dob = 'Data de nascimento obrigatória (KYC)';
       } else {
         const birthDate = new Date(form.dob);
         const today = new Date();
         let age = today.getFullYear() - birthDate.getFullYear();
         const m = today.getMonth() - birthDate.getMonth();
         if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-        if (age < 18) newErrors.dob = 'Tem de ter pelo menos 18 anos';
+        if (age < 18) newErrors.dob = 'Tem de ter pelo menos 18 anos (AML)';
       }
     }
 
@@ -174,47 +185,43 @@ export default function CheckoutPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // ─── Checkout submit → Atlas ────────────────────────────
+  // ─── Checkout submit → Atlas Core V2 ───────────────────
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!validateAll()) {
       toast.error('Preencha todos os campos obrigatórios.');
       return;
     }
+    if (!isKycComplete) {
+      toast.error('Complete a verificação KYC para prosseguir.');
+      return;
+    }
 
     setIsProcessing(true);
 
     try {
-      const provider = mapPaymentProvider(paymentMethod);
-      const paymentPayload: { provider: string; phone?: string } = { provider };
-      if (paymentMethod === 'mbway' && form.mbwayPhone) {
-        paymentPayload.phone = form.mbwayPhone.replace(/\s/g, '');
-      }
-
-      const result: AtlasCheckoutResponse = await processCheckout({
-        storeSlug: process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio',
-        items: cart.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          priceEur: item.priceEur,
-        })),
+      // Build the Core V2 payload contract
+      const result: AtlasCheckoutResponse = await createPaymentIntent({
+        store: process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio',
+        method: paymentMethod,
+        amount: finalTotal,
+        currency,
         customer: {
-          name: form.name,
           email: form.email,
-          phone: form.phone || undefined,
-          vat: form.vat || undefined,
-          dob: paymentMethod === 'crypto' ? form.dob : undefined,
+          fullName: form.name,
+          nif: paymentMethod === 'crypto' ? form.vat.trim() : (form.vat.trim() || undefined),
+          birthDate: paymentMethod === 'crypto' ? form.dob : undefined,
+          phone: form.phone || (paymentMethod === 'mbway' ? form.mbwayPhone.replace(/\s/g, '') : undefined),
           address: form.address,
           city: form.city,
           postalCode: form.postal,
           country: form.country,
         },
-        shipping: {
-          method: 'standard',
-          cost: shippingCost,
-        },
-        payment: paymentPayload as { provider: 'CARD' | 'MBWAY' | 'MULTIBANCO' | 'SEPA' | 'CRYPTO'; phone?: string },
-        totalAmount: finalTotal,
+        items: cart.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          priceEur: item.priceEur,
+        })),
       });
 
       if (!result || !result.payload) {
@@ -224,8 +231,10 @@ export default function CheckoutPage() {
 
       setTransactionId(result.payload.orderId || result.transactionId);
 
-      // Route based on Atlas actionType — all data lives inside result.payload
+      // ── Route based on Core actionType ──────────────────
+      // The Core decides routing based on payment_rules DB table
       switch (result.actionType) {
+        // Card → Core routed to STRIPE_PT_002
         case 'STRIPE_ELEMENTS': {
           const cs = result.payload.clientSecret;
           const pk = result.payload.publishableKey;
@@ -240,6 +249,7 @@ export default function CheckoutPage() {
           break;
         }
 
+        // Crypto → Core routed to STRIPE_CRYPTO / ONRAMP_MONEY
         case 'SHOW_CRYPTO_WIDGET': {
           const cryptoSecret = result.payload.clientSecret;
           if (!cryptoSecret) {
@@ -253,6 +263,7 @@ export default function CheckoutPage() {
           break;
         }
 
+        // Crypto → External redirect
         case 'REDIRECT_CRYPTO': {
           const cryptoUrl = result.payload.url;
           if (cryptoUrl) {
@@ -264,6 +275,7 @@ export default function CheckoutPage() {
           break;
         }
 
+        // MBWAY → Core routed to Proxy MBWAY (push approval)
         case 'SHOW_MBWAY': {
           clearCart();
           const params = new URLSearchParams({
@@ -274,6 +286,7 @@ export default function CheckoutPage() {
           break;
         }
 
+        // Multibanco → Core routed to Proxy (entity + reference)
         case 'SHOW_MULTIBANCO': {
           clearCart();
           const params = new URLSearchParams({
@@ -282,24 +295,27 @@ export default function CheckoutPage() {
             entity: result.payload.entity || '',
             reference: result.payload.reference || '',
             amount: String(result.payload.amount || finalTotal),
+            deadline: result.payload.deadline || '',
           });
           router.push(`/checkout/success?${params.toString()}`);
           break;
         }
 
+        // SEPA → Core routed to Proxy SEPA (IBAN + beneficiary)
         case 'SHOW_SEPA': {
           clearCart();
           const params = new URLSearchParams({
             type: 'sepa',
             tid: result.payload.orderId || result.transactionId,
-            iban: result.payload.iban || 'PT50 0033 0000 4559 9332 6620 5',
-            beneficiary: result.payload.beneficiary || 'AZORES MEET',
+            iban: result.payload.iban || sepaIban || '',
+            beneficiary: result.payload.beneficiary || sepaBeneficiary || '',
             amount: String(result.payload.amount || finalTotal),
           });
           router.push(`/checkout/success?${params.toString()}`);
           break;
         }
 
+        // Generic redirect
         default: {
           clearCart();
           const params = new URLSearchParams({ type: 'card', tid: result.payload.orderId || result.transactionId });
@@ -314,14 +330,63 @@ export default function CheckoutPage() {
     }
   };
 
-  const handlePaymentSuccess = () => {
+  // ── After Stripe/Crypto widget confirms payment ────────
+  const handlePaymentSuccess = async () => {
+    // Notify Core CRM to settle stock
+    if (transactionId) {
+      try {
+        await settleStock({
+          store: process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio',
+          orderId: transactionId,
+          items: cart.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            priceEur: item.priceEur,
+          })),
+        });
+      } catch (err) {
+        console.error('Stock settlement failed (non-blocking):', err);
+        // Non-blocking: Core will reconcile via webhook
+      }
+    }
+
     clearCart();
     const params = new URLSearchParams({ type: 'card', tid: transactionId || '' });
     router.push(`/checkout/success?${params.toString()}`);
   };
 
-  // ─── Available payment methods (from Atlas or fallback) ─
+  // ─── Available payment methods (dynamic from Core) ────
   const availableMethods = checkoutConfig?.paymentMethods?.map((pm) => pm.method) || ['card', 'mbway', 'multibanco', 'sepa', 'crypto'];
+
+  // ─── Dynamic labels from Core config ───────────────────
+  const getPaymentLabel = (method: PaymentMethod): string => {
+    const configMethod = checkoutConfig?.paymentMethods?.find((pm) => pm.method === method);
+    if (configMethod?.label) return configMethod.label;
+    const defaults: Record<string, string> = {
+      card: 'Cartão de Crédito/Débito',
+      mbway: 'MBWAY',
+      multibanco: 'Multibanco',
+      sepa: 'Transferência SEPA',
+      crypto: 'Pagamento Web3 (Cartão Bancário)',
+    };
+    return defaults[method] || method;
+  };
+
+  const getPaymentSubtitle = (method: PaymentMethod): string => {
+    const configMethod = checkoutConfig?.paymentMethods?.find((pm) => pm.method === method);
+    if (configMethod?.description) return configMethod.description;
+    const defaults: Record<string, string> = {
+      card: 'Visa, Mastercard, etc.',
+      mbway: 'Confirme na App',
+      multibanco: 'Referência de pagamento',
+      sepa: 'Transferência bancária',
+      crypto: `Poupe ${cryptoDiscountPct}% — pague com cartão via Stripe. Sem carteira crypto.`,
+    };
+    return defaults[method] || '';
+  };
+
+  // ─── Submit button disabled state ──────────────────────
+  const isSubmitDisabled = isProcessing || configLoading || !isKycComplete;
 
   // ─── Empty cart guard ───────────────────────────────────
   if (cart.length === 0 && !showStripeForm && !showCryptoWidget) {
@@ -358,7 +423,7 @@ export default function CheckoutPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
           {/* ── Main Form Column ────────────────────────────────── */}
           <div className="lg:col-span-2 space-y-5">
-            {/* Section: Dados Pessoais */}
+            {/* Section 1: Dados Pessoais */}
             <section className="bg-white p-5 sm:p-6 md:p-8 border border-[#ede8e0]">
               <div className="flex items-center gap-2 mb-5">
                 <div className="w-7 h-7 rounded-full bg-[#1a3a3a] text-white flex items-center justify-center text-xs font-bold">1</div>
@@ -368,7 +433,7 @@ export default function CheckoutPage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-[#1a3a3a] mb-1.5">Nome *</label>
+                    <label className="block text-sm font-medium text-[#1a3a3a] mb-1.5">Nome completo *</label>
                     <input type="text" value={form.name} onChange={(e) => updateForm('name', e.target.value)} className={`w-full px-3 sm:px-4 py-2.5 border ${errors.name ? 'border-red-400' : 'border-[#ede8e0]'} focus:outline-none focus:border-[#1a3a3a] transition-colors bg-white text-sm`} placeholder="João Silva" />
                     {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
                   </div>
@@ -397,7 +462,7 @@ export default function CheckoutPage() {
               </div>
             </section>
 
-            {/* Section: Endereço de Envio */}
+            {/* Section 2: Endereço de Envio */}
             <section className="bg-white p-5 sm:p-6 md:p-8 border border-[#ede8e0]">
               <div className="flex items-center gap-2 mb-5">
                 <div className="w-7 h-7 rounded-full bg-[#1a3a3a] text-white flex items-center justify-center text-xs font-bold">2</div>
@@ -436,7 +501,7 @@ export default function CheckoutPage() {
               </div>
             </section>
 
-            {/* Section: Método de Pagamento (Dynamic from Atlas) */}
+            {/* Section 3: Método de Pagamento (Dynamic from Core DB) */}
             <section className="bg-white p-5 sm:p-6 md:p-8 border border-[#ede8e0]">
               <div className="flex items-center gap-2 mb-5">
                 <div className="w-7 h-7 rounded-full bg-[#1a3a3a] text-white flex items-center justify-center text-xs font-bold">3</div>
@@ -447,7 +512,7 @@ export default function CheckoutPage() {
               {configLoading ? (
                 <div className="flex items-center justify-center py-8 gap-3">
                   <Loader2 size={20} className="animate-spin text-[#1a3a3a]" />
-                  <span className="text-sm text-[#6b6b6b]">A carregar métodos de pagamento...</span>
+                  <span className="text-sm text-[#6b6b6b]">A carregar métodos de pagamento do Core...</span>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -472,17 +537,17 @@ export default function CheckoutPage() {
                         </div>
                         {isCrypto && (
                           <span className="absolute top-3 left-3 px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase bg-emerald-500 text-white">
-                            -5% Desconto
+                            -{cryptoDiscountPct}% Desconto
                           </span>
                         )}
                         <div className={`mb-2 ${isCrypto ? 'mt-5' : ''} text-[#1a3a3a]`}>
                           {PAYMENT_ICONS[method] || <CreditCard size={22} />}
                         </div>
                         <p className="text-sm font-medium text-[#1a3a3a] pr-5">
-                          {PAYMENT_LABELS[method] || method}
+                          {getPaymentLabel(method)}
                         </p>
                         <p className="text-[10px] text-[#6b6b6b] mt-0.5">
-                          {PAYMENT_SUBTITLES[method] || ''}
+                          {getPaymentSubtitle(method)}
                         </p>
                       </button>
                     );
@@ -504,24 +569,58 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              {/* Crypto KYC */}
+              {/* Crypto KYC/AML Compliance — NIF + birthDate mandatory */}
               {paymentMethod === 'crypto' && (
                 <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
                   <h4 className="text-sm font-semibold mb-2 flex items-center gap-2 text-[#1a3a3a]">
-                    <ShieldCheck size={16} className="text-green-600" /> Verificação de Identidade (Obrigatório)
+                    <ShieldCheck size={16} className="text-green-600" /> Verificação de Identidade (KYC/AML)
                   </h4>
-                  <p className="text-xs text-slate-500 mb-4">Para pagamentos Crypto, a lei exige a verificação de maioridade (+18) e identificação fiscal.</p>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Para pagamentos Crypto, a regulamentação europeia (AMLD5) exige a verificação de maioridade (+18) e identificação fiscal. Sem estes dados, o pagamento não pode ser processado.
+                  </p>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-[#1a3a3a] mb-1.5">Data de Nascimento *</label>
-                      <input type="date" value={form.dob} onChange={(e) => { updateForm('dob', e.target.value); }} className={`w-full px-3 sm:px-4 py-2.5 border ${errors.dob ? 'border-red-400' : 'border-slate-300'} focus:outline-none focus:border-[#1a3a3a] transition-colors bg-white text-sm`} max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]} />
+                      <label className="block text-sm font-medium text-[#1a3a3a] mb-1.5">
+                        NIF / SSN <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={form.vat}
+                        onChange={(e) => updateForm('vat', e.target.value)}
+                        className={`w-full px-3 sm:px-4 py-2.5 border ${errors.vat ? 'border-red-400' : 'border-slate-300'} focus:outline-none focus:border-[#1a3a3a] transition-colors bg-white text-sm`}
+                        placeholder="Ex: 500123456"
+                      />
+                      {errors.vat && <p className="text-red-500 text-xs mt-1">{errors.vat}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[#1a3a3a] mb-1.5">
+                        Data de Nascimento <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={form.dob}
+                        onChange={(e) => updateForm('dob', e.target.value)}
+                        className={`w-full px-3 sm:px-4 py-2.5 border ${errors.dob ? 'border-red-400' : 'border-slate-300'} focus:outline-none focus:border-[#1a3a3a] transition-colors bg-white text-sm`}
+                        max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                      />
                       {errors.dob && <p className="text-red-500 text-xs mt-1">{errors.dob}</p>}
                     </div>
                   </div>
+
+                  {/* KYC warning when incomplete */}
+                  {!isKycComplete && (
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded flex items-start gap-2">
+                      <AlertTriangle size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-[10px] text-amber-700 font-medium">
+                        Preencha o NIF e a Data de Nascimento para desbloquear o pagamento Crypto.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="mt-3 pt-3 border-t border-slate-200">
                     <div className="flex items-start gap-2">
                       <Zap size={14} className="text-emerald-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-[10px] text-emerald-700">Poupe 5% na sua encomenda! Utilize o seu cartão bancário normal para pagar de forma instantânea e segura através da Stripe. Não é necessário ter conta ou carteira crypto.</p>
+                      <p className="text-[10px] text-emerald-700">Poupe {cryptoDiscountPct}% na sua encomenda! Utilize o seu cartão bancário normal para pagar de forma instantânea e segura através da Stripe. Não é necessário ter conta ou carteira crypto.</p>
                     </div>
                   </div>
                 </div>
@@ -554,7 +653,7 @@ export default function CheckoutPage() {
               )}
             </section>
 
-            {/* ── Stripe Elements (rendered after Atlas response) ── */}
+            {/* ── Stripe Elements (Core routed to STRIPE_PT_002) ── */}
             {showStripeForm && clientSecret && publishableKey && (
               <section id="stripe-section" className="bg-white p-5 sm:p-6 md:p-8 border-2 border-[#1a3a3a]">
                 <div className="flex items-center gap-2 mb-5">
@@ -566,13 +665,13 @@ export default function CheckoutPage() {
               </section>
             )}
 
-            {/* ── Crypto Onramp Widget (rendered after Atlas response) ── */}
+            {/* ── Crypto Onramp Widget (Core routed to STRIPE_CRYPTO / ONRAMP_MONEY) ── */}
             {showCryptoWidget && cryptoClientSecret && cryptoPublishableKey && (
               <section id="crypto-section" className="bg-white p-5 sm:p-6 md:p-8 border-2 border-emerald-500">
                 <div className="flex items-center gap-2 mb-5">
                   <Wallet size={16} className="text-emerald-600" />
                   <h2 className="text-base sm:text-lg font-medium text-[#1a3a3a]" style={{ fontFamily: "'Playfair Display', serif" }}>Pagamento Web3</h2>
-                  <span className="px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase bg-emerald-500 text-white">-5% Desconto</span>
+                  <span className="px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase bg-emerald-500 text-white">-{cryptoDiscountPct}% Desconto</span>
                 </div>
                 <p className="text-sm text-[#6b6b6b] mb-6">Complete o pagamento no widget abaixo. Utilize o seu cartão bancário normal — o processo é automático e seguro.</p>
                 <CryptoOnrampForm clientSecret={cryptoClientSecret} publishableKey={cryptoPublishableKey} onSuccess={handlePaymentSuccess} />
@@ -615,7 +714,7 @@ export default function CheckoutPage() {
               {paymentMethod === 'crypto' && cryptoDiscount > 0 && (
                 <div className="flex justify-between text-sm mb-2">
                   <span className="text-emerald-600 font-medium flex items-center gap-1.5">
-                    <Zap size={12} /> Desconto Web3 (5%)
+                    <Zap size={12} /> Desconto Web3 ({cryptoDiscountPct}%)
                   </span>
                   <span className="text-emerald-600 font-medium">-{formatPrice(cryptoDiscount)}</span>
                 </div>
@@ -635,19 +734,39 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {/* Submit button */}
+              {/* Free shipping progress */}
+              {cartTotal < freeShippingThreshold && (
+                <div className="mb-4 p-3 bg-[#f8f5f0] border border-[#ede8e0]">
+                  <div className="flex justify-between text-[10px] text-[#6b6b6b] mb-1.5">
+                    <span>Envio gratuito a partir de {formatPrice(freeShippingThreshold)}</span>
+                    <span className="font-medium text-[#1a3a3a]">faltam {formatPrice(freeShippingThreshold - cartTotal)}</span>
+                  </div>
+                  <div className="h-1 bg-[#ede8e0] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#1a3a3a] rounded-full transition-all duration-500" style={{ width: `${Math.min((cartTotal / freeShippingThreshold) * 100, 100)}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Submit button — blocked if KYC incomplete for crypto */}
               {!showStripeForm && !showCryptoWidget && (
-                <button
-                  onClick={handleCheckout}
-                  disabled={isProcessing || configLoading}
-                  className="w-full bg-[#1a3a3a] text-white py-3 font-medium hover:bg-[#2d5a5a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                >
-                  {isProcessing ? (
-                    <><Loader2 size={14} className="animate-spin" /> A processar...</>
-                  ) : (
-                    <><CreditCard size={14} /> Finalizar Encomenda — {paymentMethod === 'crypto' ? <><span className="line-through text-white/50 mr-1">{formatPrice(total)}</span>{formatPrice(finalTotal)}</> : formatPrice(finalTotal)}</>
+                <>
+                  <button
+                    onClick={handleCheckout}
+                    disabled={isSubmitDisabled}
+                    className="w-full bg-[#1a3a3a] text-white py-3 font-medium hover:bg-[#2d5a5a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {isProcessing ? (
+                      <><Loader2 size={14} className="animate-spin" /> A processar...</>
+                    ) : !isKycComplete ? (
+                      <><AlertTriangle size={14} /> Complete o KYC para pagar</>
+                    ) : (
+                      <><CreditCard size={14} /> Finalizar Encomenda — {paymentMethod === 'crypto' ? <><span className="line-through text-white/50 mr-1">{formatPrice(total)}</span>{formatPrice(finalTotal)}</> : formatPrice(finalTotal)}</>
+                    )}
+                  </button>
+                  {!isKycComplete && paymentMethod === 'crypto' && (
+                    <p className="text-[10px] text-amber-600 text-center mt-2">Preencha NIF e Data de Nascimento acima</p>
                   )}
-                </button>
+                </>
               )}
 
               <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#6b6b6b] mt-3">

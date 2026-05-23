@@ -1,7 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import ZAI from 'z-ai-web-dev-sdk';
 
+// ─── In-Memory Chat Sessions (Dumb Client — no local DB) ────────
+// Sessions are ephemeral; lost on server restart. Atlas Core V2 owns persistence.
+const sessions = new Map<string, { messages: string; updatedAt: number }>();
+
+// Prune sessions older than 24 h every 10 min
+const PRUNE_INTERVAL = 10 * 60 * 1000;
+const SESSION_TTL = 24 * 60 * 60 * 1000;
+let lastPrune = Date.now();
+
+function pruneStaleSessions() {
+  const now = Date.now();
+  if (now - lastPrune < PRUNE_INTERVAL) return;
+  lastPrune = now;
+  for (const [key, val] of sessions) {
+    if (now - val.updatedAt > SESSION_TTL) sessions.delete(key);
+  }
+}
+
+// ─── Maria da Terra System Prompt ───────────────────────────────
 const MARIA_SYSTEM_PROMPT = `És a Maria da Terra, uma assistente açoriana calorosa e conhecedora da loja AZORES.BIO.
 
 Personalidade:
@@ -45,36 +63,26 @@ interface ChatRequestBody {
 
 export async function POST(request: NextRequest) {
   try {
+    pruneStaleSessions();
+
     const body: ChatRequestBody = await request.json();
 
     if (!body.sessionId || !body.message) {
       return NextResponse.json(
         { error: 'sessionId and message are required' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Load or create chat session
-    let session = await db.chatSession.findUnique({
-      where: { sessionId: body.sessionId },
-    });
-
+    // Load or create chat session (in-memory)
     let chatHistory: ChatMessage[] = [];
-
-    if (session?.messages) {
+    const existing = sessions.get(body.sessionId);
+    if (existing) {
       try {
-        chatHistory = JSON.parse(session.messages) as ChatMessage[];
+        chatHistory = JSON.parse(existing.messages) as ChatMessage[];
       } catch {
         chatHistory = [];
       }
-    } else {
-      // Create new session
-      session = await db.chatSession.create({
-        data: {
-          sessionId: body.sessionId,
-          messages: JSON.stringify([]),
-        },
-      });
     }
 
     // Add user message to history
@@ -83,7 +91,7 @@ export async function POST(request: NextRequest) {
     // Prepare messages for LLM
     const messages = [
       { role: 'system' as const, content: MARIA_SYSTEM_PROMPT },
-      ...chatHistory.slice(-20), // Keep last 20 messages for context window
+      ...chatHistory.slice(-20),
     ];
 
     // Call LLM via z-ai-web-dev-sdk
@@ -93,18 +101,17 @@ export async function POST(request: NextRequest) {
       model: 'default',
     });
 
-    const assistantMessage = response?.choices?.[0]?.message?.content || 
+    const assistantMessage =
+      response?.choices?.[0]?.message?.content ||
       'Desculpa, não consegui processar a tua mensagem. Podes tentar novamente? 🌿';
 
     // Add assistant response to history
     chatHistory.push({ role: 'assistant', content: assistantMessage });
 
-    // Save updated chat history
-    await db.chatSession.update({
-      where: { sessionId: body.sessionId },
-      data: {
-        messages: JSON.stringify(chatHistory),
-      },
+    // Save updated chat history (in-memory)
+    sessions.set(body.sessionId, {
+      messages: JSON.stringify(chatHistory),
+      updatedAt: Date.now(),
     });
 
     return NextResponse.json({
@@ -115,7 +122,7 @@ export async function POST(request: NextRequest) {
     console.error('Error in chat API:', error);
     return NextResponse.json(
       { error: 'Failed to process chat message' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
