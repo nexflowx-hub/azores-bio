@@ -113,3 +113,47 @@ Stage Summary:
 - All changes pushed to GitHub main branch
 - Homepage now has: Island Showcase, JsonLd, responsive design, local AI images
 - API fully aligned with OpenAPI V2 spec
+
+---
+Task ID: 8
+Agent: Main
+Task: Fix Vercel build — useState import in about page
+
+Work Log:
+- Restored `import { useState } from 'react'` in about/page.tsx (was incorrectly removed in Task 6)
+- Pushed commit 3e0c71c to GitHub
+
+Stage Summary:
+- Vercel build error `ReferenceError: useState is not defined` on /about fixed
+
+---
+Task ID: 9
+Agent: Main
+Task: Regenerate hero image (no text), remove orphaned Prisma API routes, fix store category URL sync
+
+Work Log:
+- Regenerated hero-gastronomy.png (1344x768) with explicit "no text, no watermark, no writing" prompt
+- Removed 9 orphaned API routes that used Prisma/SQLite with incompatible schemas (int IDs vs UUID):
+  - /api/products/route.ts (Prisma db.product.findMany)
+  - /api/products/[id]/route.ts (parseInt — breaks with Atlas UUID)
+  - /api/products/featured/route.ts (Prisma db.product.findMany)
+  - /api/products/atlas/route.ts (dead code duplicate of atlas.ts client adapter)
+  - /api/categories/route.ts (Prisma db.category.findMany)
+  - /api/orders/route.ts (Prisma db.order.create with productId: number)
+  - /api/orders/[orderNumber]/route.ts (Prisma db.order.findUnique)
+  - /api/stripe/payment-intent/route.ts (direct Stripe — should go through Atlas Core)
+  - /api/route.ts (useless hello world)
+- Removed src/lib/db.ts (Prisma client — no longer referenced)
+- Removed src/lib/shippingCalculator.ts (orphaned)
+- Fixed store page category URL sync: category clicks now push ?cat= to URL via router.replace()
+  - Previously: selecting category in sidebar didn't update URL → lost on refresh
+  - Now: selectCategory() uses router.replace() to sync URL param
+- Kept /api/chat/route.ts (MariaChat — active, uses z-ai-web-dev-sdk)
+- Lint passes with zero errors
+- All pages respond HTTP 200
+
+Stage Summary:
+- Hero image regenerated without photography text
+- -1002 lines of dead Prisma code removed (would fail Vercel build since @prisma/client not in deps)
+- Store category selection now persists in URL
+- Commit 3ae244c pushed to GitHub main
