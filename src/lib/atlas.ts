@@ -17,9 +17,14 @@ import {
   AtlasProductRaw,
   AtlasProduct,
   AtlasCategory,
+  CheckoutConfigRaw,
   CheckoutConfig,
+  PaymentMethodConfig,
+  PaymentMethod,
   CheckoutIntentRequest,
   AtlasCheckoutResponse,
+  OrdersRequest,
+  AtlasOrdersResponse,
   StockSettlementRequest,
 } from './types';
 
@@ -188,7 +193,75 @@ export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
     { next: { revalidate: 300 } } as RequestInit,
   );
   if (!res.ok) throw new Error(`Atlas checkout-config error: ${res.status}`);
-  return res.json();
+
+  const raw: CheckoutConfigRaw = await res.json();
+
+  // Enrich raw API response into frontend CheckoutConfig
+  const methodLabels: Record<
+    string,
+    {
+      label: string;
+      description?: string;
+      requiresPhone?: boolean;
+      requiresKYC?: boolean;
+      provider?: string;
+    }
+  > = {
+    card: {
+      label: 'Cartão de Crédito/Débito',
+      description: 'Visa, Mastercard, etc.',
+      provider: 'STRIPE_PT_002',
+    },
+    mbway: {
+      label: 'MBWAY',
+      description: 'Confirme na App',
+      requiresPhone: true,
+      provider: 'PROXY_MBWAY',
+    },
+    multibanco: {
+      label: 'Multibanco',
+      description: 'Referência de pagamento',
+      provider: 'PROXY_MULTIBANCO',
+    },
+    sepa: {
+      label: 'Transferência SEPA',
+      description: 'Transferência bancária',
+      provider: 'PROXY_SEPA',
+    },
+    crypto: {
+      label: 'Pagamento Web3',
+      description: '-5% Desconto',
+      requiresKYC: true,
+      provider: 'STRIPE_CRYPTO',
+    },
+  };
+
+  const paymentMethods: PaymentMethodConfig[] = (
+    raw.allowedMethods || []
+  ).map((method) => {
+    const meta = methodLabels[method] || {
+      label: method,
+      provider: method.toUpperCase(),
+    };
+    return {
+      method: method as PaymentMethod,
+      ...meta,
+    } as PaymentMethodConfig;
+  });
+
+  return {
+    // Preserve raw fields
+    allowedMethods: raw.allowedMethods,
+    keys: raw.keys,
+    cryptoWallet: raw.cryptoWallet,
+    // Enriched fields
+    paymentMethods,
+    stripePublishableKey: raw.keys?.stripe_public,
+    cryptoDiscountPct: 5, // Default crypto discount
+    freeShippingThreshold: 75,
+    shippingCost: 6.5,
+    currency: 'EUR',
+  };
 }
 
 /** Backward-compatible alias */
@@ -257,6 +330,39 @@ export async function settleStock(
     const errorData = await res.json().catch(() => ({}));
     throw new Error(
       errorData.message || `Stock settlement error: ${res.status}`,
+    );
+  }
+
+  return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ORDERS — POST /orders
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Create a new order in Atlas Core.
+ * The order starts with status PENDING_SETTLEMENT until payment
+ * is confirmed via webhook or callback.
+ *
+ * Endpoint: POST /api/v1/orders
+ */
+export async function createOrder(
+  payload: OrdersRequest,
+): Promise<AtlasOrdersResponse> {
+  const res = await fetch(`${API_URL}/api/v1/orders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-store-slug': STORE_SLUG,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData.message || `Order creation error: ${res.status}`,
     );
   }
 

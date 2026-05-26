@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// AZORES.BIO — Type System v2.0 (Atlas Core V2 Dumb Client)
+// AZORES.BIO — Type System v2.1 (Atlas Core V2 Dumb Client)
+// Aligned with OpenAPI V2 spec
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Payment Types ──────────────────────────────────────────
@@ -83,19 +84,55 @@ export interface AtlasCategory {
   icon?: string;
 }
 
-// ─── Checkout Config (from Core DB payment_rules) ───────────
+// ═══════════════════════════════════════════════════════════════
+// CHECKOUT CONFIG — Raw API Response vs Enriched Frontend Type
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * CheckoutConfigRaw — Exact shape returned by
+ * GET /storefront/checkout-config?store=azores-bio
+ *
+ * The API returns a flat list of allowed method names, a keys
+ * object with public credentials, and a crypto wallet address.
+ */
+export interface CheckoutConfigRaw {
+  allowedMethods: string[];             // e.g. ["card", "multibanco", "mbway", "crypto"]
+  keys: {
+    stripe_public: string;              // Stripe publishable key (pk_live_xxx)
+  };
+  cryptoWallet: string;                 // Destination wallet address (0x...)
+}
+
+/**
+ * CheckoutConfig — Enriched version used by the frontend.
+ *
+ * The raw API returns `allowedMethods` + `keys` + `cryptoWallet`,
+ * but the frontend needs richer per-method data (labels, icons,
+ * descriptions, KYC flags, provider names). The adapter layer
+ * (atlas.ts) enriches the raw response into this shape.
+ *
+ * Optional raw-API fields (`allowedMethods`, `keys`, `cryptoWallet`)
+ * are included so the adapter can preserve them when merging.
+ */
 export interface CheckoutConfig {
+  // ── Raw API fields (preserved by adapter) ──
+  allowedMethods?: string[];            // From API: ["card", "multibanco", "mbway", "crypto"]
+  keys?: {
+    stripe_public: string;              // From API: Stripe publishable key
+  };
+  cryptoWallet?: string;                // From API: destination wallet (0x...)
+
+  // ── Enriched fields (built by adapter) ──
   paymentMethods: PaymentMethodConfig[];
-  stripePublishableKey?: string;
+  stripePublishableKey?: string;        // Same as keys.stripe_public (convenience alias)
   shipping?: ShippingConfig;
   freeShippingThreshold?: number;
   shippingCost?: number;
   cryptoDiscountPct?: number;
-  cryptoWallet?: string;     // Destination wallet from Core DB
-  iban?: string;             // SEPA IBAN from Core DB
-  beneficiary?: string;      // SEPA beneficiary from Core DB
-  currency?: string;         // Default: "EUR"
-  paymentRoutes?: PaymentRouteConfig[];  // Route rules from Core DB
+  iban?: string;                        // SEPA IBAN from Core DB
+  beneficiary?: string;                 // SEPA beneficiary from Core DB
+  currency?: string;                    // Default: "EUR"
+  paymentRoutes?: PaymentRouteConfig[]; // Route rules from Core DB
 }
 
 export interface PaymentMethodConfig {
@@ -132,11 +169,19 @@ export interface ShippingMethodConfig {
 }
 
 // ─── Checkout Intent Request (Core V2 Contract) ─────────────
+/**
+ * POST /checkout/intent
+ *
+ * The `currency` field is optional — the API defaults to "EUR"
+ * but the frontend may send it explicitly.
+ *
+ * `customer.nif` is mandatory when method === "crypto" (KYC/AML).
+ */
 export interface CheckoutIntentRequest {
   store: string;                     // "azores-bio"
   method: PaymentMethod;             // "card" | "multibanco" | "mbway" | "crypto"
   amount: number;                    // Final amount in EUR (after discounts)
-  currency: string;                  // "EUR"
+  currency?: string;                 // "EUR" (optional — defaults to EUR on server)
   customer: CheckoutCustomer;
   items: CheckoutItem[];
 }
@@ -150,7 +195,7 @@ export interface CheckoutItem {
 export interface CheckoutCustomer {
   email: string;
   fullName: string;
-  nif?: string;            // NIF / SSN — mandatory for crypto (KYC/AML)
+  nif?: string;            // NIF / SSN — **mandatory for crypto (KYC/AML)**
   birthDate?: string;       // YYYY-MM-DD — mandatory for crypto (KYC/AML ≥18)
   phone?: string;
   address?: string;
@@ -177,6 +222,51 @@ export interface AtlasCheckoutResponse {
     cryptoWallet?: string;       // Destination wallet for crypto
     url?: string;                // Redirect URL
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ORDERS — POST /orders
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * OrdersRequest — POST /orders
+ *
+ * Creates a new order in the system. The order starts with
+ * status PENDING_SETTLEMENT until payment is confirmed.
+ */
+export interface OrdersRequest {
+  storeSlug: string;              // e.g. "azores-bio"
+  customer: CheckoutCustomer;
+  items: CheckoutItem[];
+}
+
+/**
+ * Order status lifecycle:
+ * PENDING_SETTLEMENT → PAID → PROCESSING → SHIPPED → DELIVERED
+ *                    ↘ CANCELLED
+ *                    ↘ REFUNDED
+ */
+export type OrderStatus =
+  | 'PENDING_SETTLEMENT'
+  | 'PAID'
+  | 'PROCESSING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'CANCELLED'
+  | 'REFUNDED';
+
+/**
+ * AtlasOrdersResponse — POST /orders response (201 Created)
+ */
+export interface AtlasOrdersResponse {
+  orderId: string;
+  storeSlug: string;
+  status: OrderStatus;
+  customer: CheckoutCustomer;
+  items: CheckoutItem[];
+  totalEur: number;
+  createdAt: string;              // ISO 8601
+  updatedAt: string;              // ISO 8601
 }
 
 // ─── CRM Stock Settlement Request ───────────────────────────

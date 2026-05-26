@@ -1,0 +1,20 @@
+{
+  "name": "AZORES.BIO — Produtos Premium dos Açores",
+  "short_name": "AZORES.BIO",
+  "description": "Produtos premium das 9 ilhas dos Açores. Queijos DOP, vinhos, conservas, chás e muito mais.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f5f0",
+  "theme_color": "#1a3a3a",
+  "orientation": "portrait-primary",
+  "lang": "pt",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "food"]
+}

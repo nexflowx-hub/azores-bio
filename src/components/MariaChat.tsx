@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Bot, User, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, User, Loader2 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { useStore } from '@/contexts/StoreContext';
 import { Button } from '@/components/ui/button';
@@ -167,7 +167,7 @@ export default function MariaChat() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-[#1a3a3a] hover:bg-[#1a3a3a]/90 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center group"
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-[#1a3a3a] hover:bg-[#1a3a3a]/90 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center group ring-2 ring-[#b8962e]/30"
           aria-label="Open chat with Maria da Terra"
         >
           <MessageCircle className="size-6 group-hover:scale-110 transition-transform" />
@@ -180,10 +180,12 @@ export default function MariaChat() {
       {isOpen && (
         <div className="fixed bottom-6 right-6 z-50 w-[calc(100vw-3rem)] sm:w-96 h-[500px] max-h-[70vh] bg-white rounded-2xl shadow-2xl border border-[#ede8e0] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-300">
           {/* Chat Header */}
-          <div className="bg-[#1a3a3a] text-white px-4 py-3 flex items-center justify-between shrink-0">
+          <div className="bg-[#1a3a3a] text-white px-4 py-3 flex items-center justify-between shrink-0 relative">
+            {/* Gold accent line at top */}
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#b8962e] to-transparent" />
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-[#b8962e] flex items-center justify-center">
-                <Bot className="size-4" />
+              <div className="w-8 h-8 rounded-full bg-[#b8962e] flex items-center justify-center text-sm">
+                🌿
               </div>
               <div>
                 <h3 className="font-semibold text-sm">Maria da Terra</h3>
@@ -208,8 +210,8 @@ export default function MariaChat() {
                   className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {msg.role === 'assistant' && (
-                    <div className="w-6 h-6 rounded-full bg-[#b8962e] flex items-center justify-center shrink-0 mt-0.5">
-                      <Bot className="size-3 text-white" />
+                    <div className="w-6 h-6 rounded-full bg-[#b8962e] flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
+                      🌿
                     </div>
                   )}
                   <div
@@ -232,8 +234,8 @@ export default function MariaChat() {
               {/* Loading indicator */}
               {isLoading && (
                 <div className="flex gap-2 justify-start">
-                  <div className="w-6 h-6 rounded-full bg-[#b8962e] flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="size-3 text-white" />
+                  <div className="w-6 h-6 rounded-full bg-[#b8962e] flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
+                    🌿
                   </div>
                   <div className="bg-[#f8f5f0] px-4 py-3 rounded-xl rounded-bl-sm">
                     <Loader2 className="size-4 text-[#b8962e] animate-spin" />
@@ -252,7 +254,7 @@ export default function MariaChat() {
                   <button
                     key={i}
                     onClick={() => handleSuggestedQuestion(q)}
-                    className="block w-full text-left text-xs px-3 py-2 rounded-lg bg-[#f8f5f0] text-[#1a3a3a] hover:bg-[#ede8e0] transition-colors border border-[#ede8e0]/50"
+                    className="block w-full text-left text-xs px-3 py-2 rounded-r-lg bg-[#f8f5f0] text-[#1a3a3a] hover:bg-[#ede8e0] transition-colors border-l-2 border-l-[#b8962e]"
                   >
                     {q}
                   </button>

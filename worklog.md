@@ -1,40 +1,115 @@
-# Azores Bio — Worklog
+# AZORES.BIO — Work Log
 
 ---
 Task ID: 1
-Agent: Z.AI (Main Architect)
-Task: Migrate Azores Bio to Atlas Core V2 Dumb Client architecture — full production sync
+Agent: Main
+Task: Generate Azores gastronomy HERO image
 
 Work Log:
-- Refactored src/lib/types.ts with Core V2 contract: CheckoutIntentRequest now uses {store, method, amount, currency, customer, items}
-- Added CheckoutCustomer with nif and birthDate fields for KYC/AML
-- Added PaymentRouteConfig, StockSettlementRequest, CartItem types
-- Added cryptoWallet, paymentRoutes, requiresKYC to CheckoutConfig
-- Refactored src/lib/atlas.ts as universal adapter v2.0:
-  - fetchStoreCheckoutConfig() reads dynamic payment rules from Core DB
-  - createPaymentIntent() uses POST /api/v1/checkout/intent with new payload
-  - settleStock() calls POST /api/v1/crm/order/settle for inventory decrement
-  - Backward-compatible aliases (fetchCheckoutConfig, processCheckout)
-- Refactored checkout page (src/app/checkout/page.tsx):
-  - KYC/AML compliance: NIF/SSN + birthDate mandatory for crypto
-  - Submit button blocked when KYC incomplete (isKycComplete check)
-  - Dynamic labels/subtitles from Core config
-  - Dynamic discount%, shipping cost, IBAN from Core config
-  - Payment routing via actionType with Core provider names
-  - settleStock() called after successful payment
-- Updated success page: crypto type, deadline param for Multibanco
-- Removed all Prisma/SQLite dependencies and legacy API routes
-- Chat API uses in-memory session storage (no local DB)
-- Cleaned package.json: 14 packages removed, only "build": "next build"
-- Cleaned .env: only NEXT_PUBLIC_ATLAS_API_URL + NEXT_PUBLIC_STORE_SLUG
-- Comprehensive README.md v2.0 written (15 sections, Portuguese)
-- Build passes, lint passes, all pages HTTP 200
-- Pushed to GitHub as commit d46b6e9
+- Generated hero-gastronomy.png (1344x768) using z-ai image generation
+- Prompt: Azores Portuguese gourmet food platter with cheese, seafood, dark wooden table
+- Generated missao-wave.png (864x1152) using z-ai image generation
+- Prompt: Atlantic ocean wave crashing against volcanic black rock cliffs
 
 Stage Summary:
-- Project is now a pure Dumb Client / Relay Node
-- Zero local DB, zero hardcoded secrets, zero monolithic logic
-- All data flows through Atlas Adapter (src/lib/atlas.ts)
-- Payment routing decided by Core payment_rules DB table
-- KYC/AML compliance enforced at UI level for crypto payments
-- Stock settlement integrated with Core CRM
+- Both images saved to /home/z/my-project/public/images/
+- hero-gastronomy.png → HERO section + CTA banner
+- missao-wave.png → Nossa Missão section
+
+---
+Task ID: 2
+Agent: Subagent (full-stack-developer)
+Task: Update homepage images
+
+Work Log:
+- Swapped HERO background from Unsplash URL to /images/hero-gastronomy.png
+- Swapped Nossa Missão image from Unsplash URL to /images/missao-wave.png
+- Updated CTA BANNER from Unsplash URL to /images/hero-gastronomy.png
+- Updated all alt texts to Portuguese descriptions
+
+Stage Summary:
+- All 3 image sections updated with local AI-generated images
+- No layout/styling changes, only src and alt attributes
+
+---
+Task ID: 3
+Agent: Subagent (full-stack-developer)
+Task: Refactor types.ts for OpenAPI V2
+
+Work Log:
+- Added CheckoutConfigRaw type matching exact API response (allowedMethods, keys.stripe_public, cryptoWallet)
+- Added OrdersRequest type for POST /orders
+- Added AtlasOrdersResponse type with OrderStatus union
+- Updated CheckoutConfig to include raw API fields alongside enriched fields
+- Made currency field optional in CheckoutIntentRequest
+- Added JSDoc for crypto KYC requirements on customer.nif
+
+Stage Summary:
+- types.ts v2.1 fully aligned with OpenAPI V2 spec
+- Backward compatible — all 6 consumer files compile cleanly
+
+---
+Task ID: 4
+Agent: Subagent (full-stack-developer)
+Task: Refactor atlas.ts for OpenAPI V2
+
+Work Log:
+- Updated fetchStoreCheckoutConfig() to parse CheckoutConfigRaw and enrich into CheckoutConfig
+- Added methodLabels lookup table for Portuguese labels, descriptions, KYC flags, providers
+- Added createOrder() function for POST /api/v1/orders
+- Preserved all existing functions and backward-compatible aliases
+- Updated imports for new types
+
+Stage Summary:
+- Atlas adapter fully aligned with OpenAPI V2
+- Raw API response enriched with frontend-friendly data
+- Order creation endpoint added
+
+---
+Task ID: 5
+Agent: Subagent (full-stack-developer)
+Task: Update checkout page for new API format
+
+Work Log:
+- Updated fallback checkout config with raw API fields (allowedMethods, keys, cryptoWallet)
+- Added submitOrderToCrm() non-blocking helper function
+- Added order creation in handlePaymentSuccess after settleStock
+- Added fire-and-forget submitOrderToCrm() on all redirect payment flows
+- Verified KYC/AML logic remains correct
+
+Stage Summary:
+- Order creation integrated throughout checkout flow
+- Non-blocking pattern ensures navigation isn't blocked
+- Fallback config matches new CheckoutConfig type
+
+---
+Task ID: 6
+Agent: Subagent (full-stack-developer)
+Task: Full project consistency review
+
+Work Log:
+- Fixed .env: removed stale DATABASE_URL, added NEXT_PUBLIC_ATLAS_API_URL and NEXT_PUBLIC_STORE_SLUG
+- Fixed: removed unused useState import in about page
+- Fixed: removed duplicate CartItem type from StoreContext, imported from types.ts
+- Verified all image references valid, CheckoutConfigRaw only in atlas.ts
+- Verified footer legal links, globals.css animations, ProductCard URL pattern
+- ESLint passes with zero errors
+
+Stage Summary:
+- 3 bugs fixed (stale env, unused import, duplicate type)
+- Full project verified consistent
+
+---
+Task ID: 7
+Agent: Main
+Task: Push to GitHub
+
+Work Log:
+- Resolved merge conflicts with remote (remote had richer homepage with island showcases)
+- Kept best of both: remote's richer content + our new images and API refactor
+- Successfully pushed commit dc61db2 to nexflowx-hub/azores-bio.git
+
+Stage Summary:
+- All changes pushed to GitHub main branch
+- Homepage now has: Island Showcase, JsonLd, responsive design, local AI images
+- API fully aligned with OpenAPI V2 spec

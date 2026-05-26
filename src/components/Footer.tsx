@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useStore } from '@/contexts/StoreContext';
-import { Instagram, Facebook, Mail, MapPin, Phone } from 'lucide-react';
+import { Instagram, Facebook, Youtube, Mail, MapPin, Phone } from 'lucide-react';
 
 export default function Footer() {
   const { t } = useStore();
@@ -11,12 +11,12 @@ export default function Footer() {
   return (
     <footer className="bg-[#1a3a3a] text-white mt-auto">
       {/* Gold line */}
-      <div className="h-px bg-gradient-to-r from-transparent via-[#b8962e] to-transparent" />
+      <div className="h-1 bg-gradient-to-r from-transparent via-[#b8962e] to-transparent" />
 
-      <div className="container py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+      <div className="container py-12 md:py-16">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-10">
           {/* Brand */}
-          <div className="lg:col-span-1">
+          <div className="col-span-2 md:col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
                 <span className="text-white text-xs font-bold">A</span>
@@ -55,6 +55,14 @@ export default function Footer() {
                 className="w-9 h-9 border border-white/20 flex items-center justify-center text-white/60 hover:text-white hover:border-white/50 transition-colors"
               >
                 <Facebook size={16} />
+              </a>
+              <a
+                href="https://youtube.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-9 h-9 border border-white/20 flex items-center justify-center text-white/60 hover:text-white hover:border-white/50 transition-colors"
+              >
+                <Youtube size={16} />
               </a>
               <a
                 href="mailto:info@azores.bio"
@@ -104,10 +112,10 @@ export default function Footer() {
             <ul className="space-y-3">
               {[
                 { href: '/about', label: 'Sobre Nós' },
-                { href: '#', label: t('footer.shipping') },
-                { href: '#', label: t('footer.privacy') },
-                { href: '#', label: t('footer.terms') },
-                { href: '#', label: 'Contacto' },
+                { href: '/envios-e-devolucoes', label: t('footer.shipping') },
+                { href: '/politica-de-privacidade', label: t('footer.privacy') },
+                { href: '/termos-e-condicoes', label: t('footer.terms') },
+                { href: 'mailto:info@azores.bio', label: 'Contacto' },
               ].map((link) => (
                 <li key={link.label}>
                   <Link href={link.href}>
@@ -130,7 +138,7 @@ export default function Footer() {
             </h4>
             <ul className="space-y-3">
               <li className="flex items-start gap-2 text-white/60 text-sm">
-                <MapPin size={14} className="mt-0.5 flex-shrink-0 text-[#b8962e]" />
+                <span className="mt-0.5 flex-shrink-0 text-[#b8962e]"><MapPin size={14} className="animate-pulse" style={{ animationDuration: '3s' }} /></span>
                 <span>
                   Macela, 9875-030<br />
                   Santo Antão, Calheta<br />
@@ -148,12 +156,33 @@ export default function Footer() {
                 <span>+351 295 000 000</span>
               </li>
             </ul>
+
+            {/* Newsletter */}
+            <div className="mt-6 pt-5 border-t border-white/10">
+              <h4
+                className="text-white font-medium mb-3 text-sm tracking-widest uppercase"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                Newsletter
+              </h4>
+              <p className="text-white/50 text-xs mb-3">Receba novidades e ofertas exclusivas.</p>
+              <div className="flex gap-0">
+                <input
+                  type="email"
+                  placeholder="seu@email.com"
+                  className="flex-1 bg-white/10 border border-white/20 text-white text-xs px-3 py-2 placeholder:text-white/30 focus:outline-none focus:border-[#b8962e] transition-colors"
+                />
+                <button className="bg-[#b8962e] text-white text-xs font-medium px-4 py-2 hover:bg-[#a6832a] transition-colors tracking-wider uppercase">
+                  OK
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Bottom bar */}
-      <div className="border-t border-white/10">
+      <div className="border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         <div className="container py-5">
           <div className="flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/40">
             <div className="text-center md:text-left">
@@ -163,6 +192,9 @@ export default function Footer() {
             </div>
             <p>
               © {new Date().getFullYear()} AZORES.BIO — {t('footer.rights')}
+            </p>
+            <p className="text-white/20 text-[10px] mt-1">
+              Powered by Atlas Core V2
             </p>
           </div>
         </div>

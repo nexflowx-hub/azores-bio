@@ -1,22 +1,14 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { AtlasProduct, AtlasCategory } from '@/lib/types';
+import { AtlasProduct, AtlasCategory, CartItem } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────
 export type Locale = 'pt' | 'en' | 'fr' | 'de';
 export type Currency = 'EUR' | 'USD' | 'GBP';
 
-export interface CartItem {
-  productId: string;       // UUID from Atlas
-  name: string;
-  nameEn?: string | null;
-  priceEur: number;        // Always EUR, always number
-  quantity: number;
-  image?: string | null;   // First image URL
-  sku?: string | null;
-  stock?: number;
-}
+// Re-export CartItem from canonical types module
+export type { CartItem } from '@/lib/types';
 
 // ─── Translations ─────────────────────────────────────────────────
 const translations: Record<string, Record<string, string>> = {

@@ -137,12 +137,29 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html { scroll-behavior: smooth; }
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Prevent iOS auto-zoom on input focus */
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="search"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-serif);
@@ -162,6 +179,7 @@
   input[type="checkbox"]:not(:disabled),
   input[type="radio"]:not(:disabled) {
     @apply cursor-pointer;
+    touch-action: manipulation;
   }
 }
 

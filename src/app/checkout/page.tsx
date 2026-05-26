@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import { toast } from 'sonner';
-import { fetchStoreCheckoutConfig, createPaymentIntent, settleStock } from '@/lib/atlas';
+import { fetchStoreCheckoutConfig, createPaymentIntent, settleStock, createOrder } from '@/lib/atlas';
 import { PaymentMethod, AtlasCheckoutResponse, CheckoutConfig } from '@/lib/types';
 import dynamic from 'next/dynamic';
 
@@ -123,8 +123,11 @@ export default function CheckoutPage() {
       })
       .catch((err) => {
         console.error('Failed to load checkout config:', err);
-        // Fallback: default payment methods
+        // Fallback: default payment methods with raw API fields
         setCheckoutConfig({
+          allowedMethods: ['card', 'mbway', 'multibanco', 'sepa', 'crypto'],
+          keys: { stripe_public: '' },
+          cryptoWallet: '',
           paymentMethods: [
             { method: 'card', label: 'Cartão de Crédito/Débito', provider: 'STRIPE_PT_002' },
             { method: 'mbway', label: 'MBWAY', requiresPhone: true, provider: 'PROXY_MBWAY' },
@@ -132,10 +135,42 @@ export default function CheckoutPage() {
             { method: 'sepa', label: 'Transferência SEPA', provider: 'PROXY_SEPA' },
             { method: 'crypto', label: 'Pagamento Web3', description: `-${cryptoDiscountPct}% Desconto`, requiresKYC: true, provider: 'STRIPE_CRYPTO' },
           ],
+          stripePublishableKey: '',
+          cryptoDiscountPct: 5,
+          freeShippingThreshold: 75,
+          shippingCost: 6.5,
+          currency: 'EUR',
         });
       })
       .finally(() => setConfigLoading(false));
   }, []);
+
+  // ─── Helper: Create order in CRM (non-blocking) ──────
+  const submitOrderToCrm = async (tid: string | null) => {
+    try {
+      await createOrder({
+        storeSlug: process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio',
+        customer: {
+          email: form.email,
+          fullName: form.name,
+          nif: form.vat.trim() || undefined,
+          birthDate: form.dob || undefined,
+          phone: form.phone || form.mbwayPhone || undefined,
+          address: form.address,
+          city: form.city,
+          postalCode: form.postal,
+          country: form.country,
+        },
+        items: cart.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          priceEur: item.priceEur,
+        })),
+      });
+    } catch (err) {
+      console.error('Order creation failed (non-blocking):', err);
+    }
+  };
 
   // ─── Form helpers ───────────────────────────────────────
   const updateForm = (field: keyof FormData, value: string) => {
@@ -268,6 +303,8 @@ export default function CheckoutPage() {
           const cryptoUrl = result.payload.url;
           if (cryptoUrl) {
             clearCart();
+            // Create order in CRM (fire-and-forget, non-blocking)
+            submitOrderToCrm(result.payload.orderId || result.transactionId);
             window.location.href = cryptoUrl;
           } else {
             toast.error('Erro: URL de redirecionamento não recebido.');
@@ -278,6 +315,8 @@ export default function CheckoutPage() {
         // MBWAY → Core routed to Proxy MBWAY (push approval)
         case 'SHOW_MBWAY': {
           clearCart();
+          // Create order in CRM (fire-and-forget, non-blocking)
+          submitOrderToCrm(result.payload.orderId || result.transactionId);
           const params = new URLSearchParams({
             type: 'mbway',
             tid: result.payload.orderId || result.transactionId,
@@ -289,6 +328,8 @@ export default function CheckoutPage() {
         // Multibanco → Core routed to Proxy (entity + reference)
         case 'SHOW_MULTIBANCO': {
           clearCart();
+          // Create order in CRM (fire-and-forget, non-blocking)
+          submitOrderToCrm(result.payload.orderId || result.transactionId);
           const params = new URLSearchParams({
             type: 'multibanco',
             tid: result.payload.orderId || result.transactionId,
@@ -304,6 +345,8 @@ export default function CheckoutPage() {
         // SEPA → Core routed to Proxy SEPA (IBAN + beneficiary)
         case 'SHOW_SEPA': {
           clearCart();
+          // Create order in CRM (fire-and-forget, non-blocking)
+          submitOrderToCrm(result.payload.orderId || result.transactionId);
           const params = new URLSearchParams({
             type: 'sepa',
             tid: result.payload.orderId || result.transactionId,
@@ -318,6 +361,8 @@ export default function CheckoutPage() {
         // Generic redirect
         default: {
           clearCart();
+          // Create order in CRM (fire-and-forget, non-blocking)
+          submitOrderToCrm(result.payload.orderId || result.transactionId);
           const params = new URLSearchParams({ type: 'card', tid: result.payload.orderId || result.transactionId });
           router.push(`/checkout/success?${params.toString()}`);
         }
@@ -348,6 +393,9 @@ export default function CheckoutPage() {
         console.error('Stock settlement failed (non-blocking):', err);
         // Non-blocking: Core will reconcile via webhook
       }
+
+      // Create order in CRM
+      await submitOrderToCrm(transactionId);
     }
 
     clearCart();
@@ -397,7 +445,7 @@ export default function CheckoutPage() {
           <h1 className="text-2xl sm:text-3xl font-medium text-[#1a3a3a] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>Carrinho vazio</h1>
           <p className="text-[#6b6b6b] mb-8">Adicione produtos ao carrinho para fazer o checkout.</p>
           <Link href="/store">
-            <button className="bg-[#1a3a3a] text-white px-8 py-3 font-medium hover:bg-[#2d5a5a] transition-colors">
+            <button className="bg-[#1a3a3a] text-white px-8 py-3.5 font-medium hover:bg-[#2d5a5a] transition-colors min-h-[44px]">
               Voltar à Loja
             </button>
           </Link>
@@ -524,7 +572,7 @@ export default function CheckoutPage() {
                         key={method}
                         type="button"
                         onClick={() => setPaymentMethod(method)}
-                        className={`relative text-left p-4 border-2 transition-all ${
+                        className={`relative text-left p-4 border-2 transition-all min-h-[44px] ${
                           isSelected
                             ? 'border-[#1a3a3a] bg-[#f8f5f0] shadow-sm'
                             : 'border-[#ede8e0] bg-white hover:border-[#c8b89a] hover:bg-[#f8f5f0]/30'
@@ -685,7 +733,7 @@ export default function CheckoutPage() {
 
           {/* ── Sidebar: Order Summary ────────────────────────────── */}
           <div className="lg:col-span-1">
-            <div className="bg-white p-5 sm:p-6 border border-[#ede8e0] lg:sticky lg:top-28">
+            <div className="bg-white p-5 sm:p-6 border border-[#ede8e0] lg:sticky lg:top-28 sticky top-20 z-10">
               <h3 className="text-base sm:text-lg font-medium text-[#1a3a3a] mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>Resumo da Encomenda</h3>
 
               {/* Cart items */}
@@ -753,7 +801,7 @@ export default function CheckoutPage() {
                   <button
                     onClick={handleCheckout}
                     disabled={isSubmitDisabled}
-                    className="w-full bg-[#1a3a3a] text-white py-3 font-medium hover:bg-[#2d5a5a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    className="w-full bg-[#1a3a3a] text-white py-3.5 font-medium hover:bg-[#2d5a5a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm min-h-[44px]"
                   >
                     {isProcessing ? (
                       <><Loader2 size={14} className="animate-spin" /> A processar...</>

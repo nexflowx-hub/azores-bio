@@ -8,6 +8,7 @@ import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
 import { AtlasProduct } from '@/lib/types';
 import { fetchProductById, fetchProducts } from '@/lib/atlas';
+import { ProductJsonLd } from '@/components/JsonLd';
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -118,8 +119,11 @@ export default function ProductDetailPage() {
   return (
     <div className="min-h-screen bg-[#f8f5f0] pt-20 lg:pt-24">
       <div className="container py-8 md:py-12">
+        {/* Structured Data for SEO */}
+        <ProductJsonLd product={product} />
+
         {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-xs text-[#6b6b6b] mb-8">
+        <nav className="flex items-center gap-2 text-xs text-[#6b6b6b] mb-6 md:mb-8">
           <Link href="/" className="hover:text-[#1a3a3a] cursor-pointer transition-colors">
             Início
           </Link>
@@ -139,7 +143,7 @@ export default function ProductDetailPage() {
           <span className="text-[#1a3a3a] line-clamp-1">{displayName}</span>
         </nav>
 
-        <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
+        <div className="grid md:grid-cols-2 gap-6 sm:gap-10 lg:gap-16">
           {/* Image gallery */}
           <div className="space-y-3">
             <div className="aspect-square overflow-hidden bg-[#f0ebe3]">
@@ -161,7 +165,7 @@ export default function ProductDetailPage() {
                   <button
                     key={i}
                     onClick={() => setSelectedImage(i)}
-                    className={`aspect-square overflow-hidden border-2 transition-colors ${
+                    className={`aspect-square overflow-hidden border-2 transition-colors min-h-[44px] ${
                       selectedImage === i ? 'border-[#1a3a3a]' : 'border-transparent'
                     }`}
                   >
@@ -184,14 +188,14 @@ export default function ProductDetailPage() {
 
             {/* Name */}
             <h1
-              className="text-2xl md:text-3xl lg:text-4xl font-medium text-[#1a3a3a] leading-tight mb-4"
+              className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-medium text-[#1a3a3a] leading-tight mb-3 sm:mb-4"
               style={{ fontFamily: "'Playfair Display', serif" }}
             >
               {displayName}
             </h1>
 
             {/* Price */}
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3 mb-4 sm:mb-6">
               <span className="text-2xl font-semibold text-[#1a3a3a]">
                 {formatPrice(product.priceEur)}
               </span>

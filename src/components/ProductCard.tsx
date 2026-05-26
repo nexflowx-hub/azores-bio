@@ -47,14 +47,15 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   return (
     <Link href={`/product/${product.id}`}>
-      <div className="group bg-white cursor-pointer overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#1a3a3a]/10">
+      <div className="group bg-white cursor-pointer overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#1a3a3a]/10 hover:border-b-2 hover:border-b-[#b8962e]">
         {/* Image */}
         <div className="relative aspect-square overflow-hidden bg-[#f0ebe3]">
+          <div className="absolute inset-0 pointer-events-none z-10 group-hover:shadow-[inset_0_0_30px_rgba(26,58,58,0.15)] transition-shadow duration-500" />
           {primaryImage && !imgError ? (
             <img
               src={primaryImage}
               alt={displayName}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 relative z-0"
               onError={() => setImgError(true)}
               loading="lazy"
             />
@@ -72,7 +73,7 @@ export default function ProductCard({ product }: ProductCardProps) {
               </span>
             )}
             {hasDiscount && (
-              <span className="bg-[#b8962e] text-white text-[9px] font-medium tracking-[0.1em] uppercase px-2 py-1">
+              <span className="bg-[#b8962e]/90 text-white text-[9px] font-medium tracking-[0.1em] uppercase px-2.5 py-1 rounded-sm backdrop-blur-sm">
                 -{discountPct}%
               </span>
             )}
@@ -116,12 +117,12 @@ export default function ProductCard({ product }: ProductCardProps) {
         {/* Info */}
         <div className="p-4">
           {product.origin && (
-            <p
-              className="text-[#b8962e] text-[10px] tracking-[0.2em] uppercase mb-1.5"
+            <span
+              className="inline-block bg-[#b8962e]/10 text-[#b8962e] text-[9px] font-medium tracking-[0.15em] uppercase px-2 py-0.5 rounded-full mb-2"
               style={{ fontFamily: "'Inter', sans-serif" }}
             >
               {product.origin}
-            </p>
+            </span>
           )}
           <h3
             className="text-sm font-medium text-[#1a3a3a] leading-snug line-clamp-2 mb-2"

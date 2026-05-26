@@ -128,7 +128,7 @@ function StorePageContent() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Pesquisar produtos..."
-              className="w-full pl-10 pr-10 py-3 bg-white border border-[#ede8e0] text-sm text-[#1a3a3a] placeholder-[#6b6b6b] focus:outline-none focus:border-[#1a3a3a] transition-colors"
+              className="w-full pl-10 pr-10 py-3 bg-white border border-[#ede8e0] text-[#1a3a3a] placeholder-[#6b6b6b] focus:outline-none focus:border-[#1a3a3a] transition-colors min-h-[44px]"
             />
             {searchInput && (
               <button
@@ -145,7 +145,7 @@ function StorePageContent() {
           <div className="relative">
             <button
               onClick={() => setSortOpen(!sortOpen)}
-              className="flex items-center gap-2 bg-white border border-[#ede8e0] px-4 py-3 text-sm text-[#1a3a3a] hover:border-[#1a3a3a] transition-colors whitespace-nowrap"
+              className="flex items-center gap-2 bg-white border border-[#ede8e0] px-4 py-3 text-sm text-[#1a3a3a] hover:border-[#1a3a3a] transition-colors whitespace-nowrap min-h-[44px]"
             >
               <SlidersHorizontal size={15} />
               {t('store.sort')}: {t(SORT_OPTIONS.find((s) => s.value === sort)?.labelKey ?? 'store.sort.featured')}
@@ -185,7 +185,7 @@ function StorePageContent() {
               <li>
                 <button
                   onClick={() => setSelectedCat('all')}
-                  className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                  className={`w-full text-left px-3 py-3 text-sm transition-colors min-h-[44px] ${
                     effectiveCategory === 'all'
                       ? 'bg-[#1a3a3a] text-white font-medium'
                       : 'text-[#3d3d3d] hover:bg-[#ede8e0]'
@@ -203,7 +203,7 @@ function StorePageContent() {
                   <li key={cat.slug}>
                     <button
                       onClick={() => setSelectedCat(cat.slug)}
-                      className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                      className={`w-full text-left px-3 py-3 text-sm transition-colors min-h-[44px] ${
                         effectiveCategory === cat.slug
                           ? 'bg-[#1a3a3a] text-white font-medium'
                           : 'text-[#3d3d3d] hover:bg-[#ede8e0]'
@@ -223,7 +223,7 @@ function StorePageContent() {
             <div className="lg:hidden mb-4">
               <button
                 onClick={() => setFiltersOpen(!filtersOpen)}
-                className="flex items-center gap-2 text-sm text-[#1a3a3a] border border-[#ede8e0] px-4 py-2.5 bg-white"
+                className="flex items-center gap-2 text-sm text-[#1a3a3a] border border-[#ede8e0] px-4 py-2.5 bg-white min-h-[44px]"
               >
                 <SlidersHorizontal size={14} />
                 {t('store.filter')}: {activeCatLabel}
@@ -236,7 +236,7 @@ function StorePageContent() {
                       setSelectedCat('all');
                       setFiltersOpen(false);
                     }}
-                    className={`text-sm px-3 py-2 text-left ${
+                    className={`text-sm px-3 py-2.5 text-left min-h-[44px] ${
                       effectiveCategory === 'all' ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
                     }`}
                   >
@@ -251,7 +251,7 @@ function StorePageContent() {
                           setSelectedCat(cat.slug);
                           setFiltersOpen(false);
                         }}
-                        className={`text-sm px-3 py-2 text-left ${
+                        className={`text-sm px-3 py-2.5 text-left min-h-[44px] ${
                           effectiveCategory === cat.slug ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
                         }`}
                       >

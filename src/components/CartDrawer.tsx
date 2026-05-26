@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useStore } from '@/contexts/StoreContext';
-import { X, Plus, Minus, ShoppingBag, Trash2 } from 'lucide-react';
+import { X, Plus, Minus, ShoppingBag, Trash2, Leaf, Sparkles } from 'lucide-react';
 
 export default function CartDrawer() {
   const {
@@ -85,12 +85,14 @@ export default function CartDrawer() {
         {/* Items */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {cart.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-              <ShoppingBag size={48} className="text-[#c8b89a]" />
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-center py-12">
+              <div className="w-16 h-16 rounded-full bg-[#1a3a3a]/5 flex items-center justify-center">
+                <Leaf size={28} className="text-[#1a3a3a]/30" />
+              </div>
               <p className="text-[#6b6b6b]">{t('cart.empty')}</p>
               <button
                 onClick={() => setCartOpen(false)}
-                className="text-sm font-medium text-[#1a3a3a] underline underline-offset-4"
+                className="text-sm font-medium text-[#1a3a3a] underline underline-offset-4 hover:text-[#b8962e] transition-colors"
               >
                 {t('cart.empty.cta')}
               </button>
@@ -158,34 +160,60 @@ export default function CartDrawer() {
 
         {/* Footer with totals */}
         {cart.length > 0 && (
-          <div className="px-6 py-5 border-t border-[#ede8e0] space-y-3 bg-white">
-            <div className="flex justify-between text-sm text-[#6b6b6b]">
-              <span>{t('cart.subtotal')}</span>
-              <span>{formatPrice(subtotal)}</span>
+          <div className="border-t border-[#ede8e0] bg-white">
+            {/* Web3 Discount Notice */}
+            <div className="mx-6 mt-4 px-3 py-2 bg-[#b8962e]/5 border border-[#b8962e]/20 rounded-md flex items-center gap-2">
+              <Sparkles size={14} className="text-[#b8962e] flex-shrink-0" />
+              <span className="text-xs text-[#b8962e] font-medium">Desconto Web3: -5%</span>
             </div>
-            <div className="flex justify-between text-sm text-[#6b6b6b]">
-              <span>{t('cart.shipping')}</span>
-              <span>
-                {shippingCost === 0 ? (
-                  <span className="text-green-600 font-medium">Grátis</span>
-                ) : (
-                  formatPrice(shippingCost)
-                )}
-              </span>
+            <div className="px-6 py-5 space-y-3">
+              <div className="flex justify-between text-sm text-[#6b6b6b]">
+                <span>{t('cart.subtotal')}</span>
+                <span>{formatPrice(subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-[#6b6b6b]">
+                <span>{t('cart.shipping')}</span>
+                <span>
+                  {shippingCost === 0 ? (
+                    <span className="text-green-600 font-medium">Grátis</span>
+                  ) : (
+                    formatPrice(shippingCost)
+                  )}
+                </span>
+              </div>
+              <div className="divider-gold" />
+              <div className="flex justify-between font-semibold text-[#1a3a3a]">
+                <span>{t('cart.total')}</span>
+                <span>{formatPrice(total)}</span>
+              </div>
+              {/* Gold accent line above checkout */}
+              <div className="h-px bg-gradient-to-r from-transparent via-[#b8962e] to-transparent mt-1" />
+              <Link href="/checkout" onClick={() => setCartOpen(false)}>
+                <button
+                  className="w-full bg-[#1a3a3a] text-white py-3.5 text-sm font-medium tracking-widest uppercase hover:bg-[#2d5a5a] transition-colors mt-1"
+                  style={{ transitionTimingFunction: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
+                >
+                  {t('cart.checkout')}
+                </button>
+              </Link>
             </div>
-            <div className="divider-gold" />
-            <div className="flex justify-between font-semibold text-[#1a3a3a]">
-              <span>{t('cart.total')}</span>
-              <span>{formatPrice(total)}</span>
+
+            {/* Recomendado para si */}
+            <div className="px-6 pb-5 pt-2 border-t border-[#ede8e0]">
+              <p className="text-[10px] text-[#6b6b6b] uppercase tracking-widest font-medium mb-3" style={{ fontFamily: "'Inter', sans-serif" }}>
+                Recomendado para si
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-[#f0ebe3] rounded-md p-2 text-center">
+                    <div className="w-full aspect-square bg-[#ede8e0] rounded mb-1.5 flex items-center justify-center">
+                      <Leaf size={14} className="text-[#c8b89a]" />
+                    </div>
+                    <p className="text-[9px] text-[#6b6b6b] truncate">Em breve</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <Link href="/checkout" onClick={() => setCartOpen(false)}>
-              <button
-                className="w-full bg-[#1a3a3a] text-white py-3.5 text-sm font-medium tracking-widest uppercase hover:bg-[#2d5a5a] transition-colors mt-2"
-                style={{ transitionTimingFunction: 'cubic-bezier(0.23, 1, 0.32, 1)' }}
-              >
-                {t('cart.checkout')}
-              </button>
-            </Link>
           </div>
         )}
       </div>
