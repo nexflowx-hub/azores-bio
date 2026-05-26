@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { SlidersHorizontal, Search, X, ChevronDown } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
@@ -20,10 +19,12 @@ type SortValue = (typeof SORT_OPTIONS)[number]['value'];
 
 function StorePageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const { t, getCategoryName } = useStore();
 
-  const initialCat = searchParams.get('cat') || 'all';
-  const [selectedCat, setSelectedCat] = useState(initialCat);
+  // Category is always driven by URL param ?cat=
+  const activeCategory = searchParams.get('cat') || 'all';
   const [sort, setSort] = useState<SortValue>('featured');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -34,9 +35,17 @@ function StorePageContent() {
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Sync category with URL — use callback to avoid cascading renders
-  const catFromUrl = searchParams.get('cat');
-  const effectiveCat = catFromUrl || 'all';
+  // Change category → push to URL
+  const selectCategory = useCallback((slug: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (slug === 'all') {
+      params.delete('cat');
+    } else {
+      params.set('cat', slug);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [searchParams, router, pathname]);
 
   // Fetch categories
   useEffect(() => {
@@ -45,15 +54,12 @@ function StorePageContent() {
       .catch(() => setCategories([]));
   }, []);
 
-  // Derive effective category
-  const effectiveCategory = catFromUrl && catFromUrl !== 'all' ? catFromUrl : (selectedCat === 'all' ? 'all' : selectedCat);
-
-  // Fetch products
+  // Fetch products — reactive to URL category + search + sort
   useEffect(() => {
     let cancelled = false;
 
     fetchProducts({
-      ...(effectiveCategory && effectiveCategory !== 'all' ? { category: effectiveCategory } : {}),
+      ...(activeCategory !== 'all' ? { category: activeCategory } : {}),
       ...(search ? { search } : {}),
       sort,
       limit: 48,
@@ -73,7 +79,7 @@ function StorePageContent() {
         }
       });
     return () => { cancelled = true; };
-  }, [effectiveCategory, search, sort]);
+  }, [activeCategory, search, sort]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,11 +92,11 @@ function StorePageContent() {
   };
 
   const activeCatLabel =
-    effectiveCategory === 'all'
+    activeCategory === 'all'
       ? t('store.all')
-      : categories.find((c) => c.slug === effectiveCategory)
-      ? getCategoryName(categories.find((c) => c.slug === effectiveCategory)!)
-      : effectiveCategory;
+      : categories.find((c) => c.slug === activeCategory)
+        ? getCategoryName(categories.find((c) => c.slug === activeCategory)!)
+        : activeCategory;
 
   return (
     <div className="min-h-screen bg-[#f8f5f0] pt-20 lg:pt-24">
@@ -107,7 +113,7 @@ function StorePageContent() {
             className="text-3xl md:text-4xl font-medium text-white"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            {effectiveCategory === 'all' ? t('store.title') : activeCatLabel}
+            {activeCategory === 'all' ? t('store.title') : activeCatLabel}
           </h1>
           {total > 0 && (
             <p className="text-white/50 text-sm mt-2">
@@ -184,9 +190,9 @@ function StorePageContent() {
             <ul className="space-y-1">
               <li>
                 <button
-                  onClick={() => setSelectedCat('all')}
+                  onClick={() => selectCategory('all')}
                   className={`w-full text-left px-3 py-3 text-sm transition-colors min-h-[44px] ${
-                    effectiveCategory === 'all'
+                    activeCategory === 'all'
                       ? 'bg-[#1a3a3a] text-white font-medium'
                       : 'text-[#3d3d3d] hover:bg-[#ede8e0]'
                   }`}
@@ -202,9 +208,9 @@ function StorePageContent() {
                 .map((cat) => (
                   <li key={cat.slug}>
                     <button
-                      onClick={() => setSelectedCat(cat.slug)}
+                      onClick={() => selectCategory(cat.slug)}
                       className={`w-full text-left px-3 py-3 text-sm transition-colors min-h-[44px] ${
-                        effectiveCategory === cat.slug
+                        activeCategory === cat.slug
                           ? 'bg-[#1a3a3a] text-white font-medium'
                           : 'text-[#3d3d3d] hover:bg-[#ede8e0]'
                       }`}
@@ -233,11 +239,11 @@ function StorePageContent() {
                 <div className="mt-2 bg-white border border-[#ede8e0] p-4 grid grid-cols-2 gap-2">
                   <button
                     onClick={() => {
-                      setSelectedCat('all');
+                      selectCategory('all');
                       setFiltersOpen(false);
                     }}
                     className={`text-sm px-3 py-2.5 text-left min-h-[44px] ${
-                      effectiveCategory === 'all' ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
+                      activeCategory === 'all' ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
                     }`}
                   >
                     {t('store.all')}
@@ -248,11 +254,11 @@ function StorePageContent() {
                       <button
                         key={cat.slug}
                         onClick={() => {
-                          setSelectedCat(cat.slug);
+                          selectCategory(cat.slug);
                           setFiltersOpen(false);
                         }}
                         className={`text-sm px-3 py-2.5 text-left min-h-[44px] ${
-                          effectiveCategory === cat.slug ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
+                          activeCategory === cat.slug ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
                         }`}
                       >
                         {getCategoryName(cat)}
@@ -279,7 +285,7 @@ function StorePageContent() {
                 </p>
                 <button
                   onClick={() => {
-                    setSelectedCat('all');
+                    selectCategory('all');
                     clearSearch();
                   }}
                   className="mt-4 text-sm text-[#6b6b6b] underline underline-offset-4 hover:text-[#1a3a3a]"
