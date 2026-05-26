@@ -1,12 +1,19 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- * Atlas Adapter v2.0 — Universal Entry Point
+ * Atlas Adapter v3.0 — Universal Entry Point with Data Sanitization
  * AZORES.BIO Dumb Client / Relay Node
  * ═══════════════════════════════════════════════════════════════
  *
- * The frontend NEVER calls payment gateways or proxy directly.
- * All communication flows through Atlas Core V2, which decides
- * internal routing based on its DB payment_rules table.
+ * CRITICAL: Prisma (backend) serializes Decimal fields as Strings.
+ * This adapter applies rigorous sanitization to ensure the React
+ * frontend always receives consistently-typed data.
+ *
+ * Key sanitization rules:
+ *   1. Decimal cast: priceEur: "29.99" → Number("29.99") → 29.99
+ *   2. Image parse: "['url1','url2']" → JSON.parse → ['url1','url2']
+ *   3. ID routing: Always use product.id (UUID) for /product/${id}
+ *   4. Nested path: bootstrap products at data.catalog.products
+ *   5. Empty image filter: Never render broken/empty image URLs
  *
  * Configuration (only 2 env vars):
  *   NEXT_PUBLIC_ATLAS_API_URL  → https://api.atlasglobal.digital
@@ -17,6 +24,7 @@ import {
   AtlasProductRaw,
   AtlasProduct,
   AtlasCategory,
+  BootstrapRaw,
   CheckoutConfigRaw,
   CheckoutConfig,
   PaymentMethodConfig,
@@ -34,82 +42,137 @@ const API_URL =
 const STORE_SLUG =
   process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio';
 
-// ─── Normalization ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// DATA SANITIZATION — The core of the adapter
+// ═══════════════════════════════════════════════════════════════
 
 /**
- * Convert raw Atlas product into a consistent, typed shape.
- * - priceEur: string | number → number  (safe for math in UI)
- * - images: string | string[] | JSONb → string[]  (safe for render)
- * - tags: string | string[] → string[]
+ * Sanitize a decimal value from Prisma.
+ * Prisma serializes Decimal as String (e.g. "29.99").
+ * We force Number() conversion — always returns a valid number.
  */
-function normalizeProduct(raw: AtlasProductRaw): AtlasProduct {
-  // priceEur: string | number → number
-  const priceEur =
-    typeof raw.priceEur === 'string'
-      ? parseFloat(raw.priceEur)
-      : raw.priceEur ?? 0;
+function sanitizeDecimal(value: number | string | undefined | null, fallback = 0): number {
+  if (value === undefined || value === null) return fallback;
+  const num = typeof value === 'string' ? Number(value) : value;
+  return isNaN(num) ? fallback : num;
+}
 
-  // compareAtPrice
-  const compareAtPrice = raw.compareAtPrice
-    ? typeof raw.compareAtPrice === 'string'
-      ? parseFloat(raw.compareAtPrice)
-      : raw.compareAtPrice
-    : undefined;
+/**
+ * Sanitize a boolean value that may come as string from Prisma.
+ */
+function sanitizeBoolean(value: boolean | string | undefined | null): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true' || value === '1';
+  return Boolean(value);
+}
 
-  // images: string | string[] | JSONb → string[]
-  let images: string[] = [];
-  if (Array.isArray(raw.images)) {
-    images = raw.images.filter(Boolean);
-  } else if (typeof raw.images === 'string') {
-    try {
-      const parsed = JSON.parse(raw.images);
-      images = Array.isArray(parsed) ? parsed.filter(Boolean) : [raw.images];
-    } catch {
-      images = raw.images ? [raw.images] : [];
+/**
+ * Sanitize images array.
+ * The API may return images as:
+ *   - A proper string[] array
+ *   - A JSON-escaped string: '["url1","url2"]'
+ *   - A single URL string
+ *   - undefined / null
+ *
+ * We parse resiliently and filter out empty/broken URLs.
+ */
+function sanitizeImages(raw: string | string[] | undefined | null, fallbackUrl?: string): string[] {
+  let parsed: string[] = [];
+
+  try {
+    if (Array.isArray(raw)) {
+      // Already an array — just filter empties
+      parsed = raw.filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
+    } else if (typeof raw === 'string') {
+      // Could be a JSON-escaped string from Prisma/legacy scrapers
+      const trimmed = raw.trim();
+      if (trimmed.startsWith('[')) {
+        try {
+          const decoded = JSON.parse(trimmed);
+          if (Array.isArray(decoded)) {
+            parsed = decoded.filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
+          } else if (typeof decoded === 'string' && decoded.trim().length > 0) {
+            parsed = [decoded];
+          }
+        } catch {
+          // Not valid JSON — treat as single URL
+          if (trimmed.length > 0) parsed = [trimmed];
+        }
+      } else if (trimmed.length > 0) {
+        // Plain string URL
+        parsed = [trimmed];
+      }
     }
+  } catch {
+    parsed = [];
   }
 
-  // Fallback: use imageUrl if images is empty
-  if (images.length === 0 && raw.imageUrl) {
-    images = [raw.imageUrl];
+  // Fallback: use imageUrl if images array is empty
+  if (parsed.length === 0 && fallbackUrl && typeof fallbackUrl === 'string' && fallbackUrl.trim().length > 0) {
+    parsed = [fallbackUrl.trim()];
   }
 
-  // tags: string | string[] → string[]
-  let tags: string[] = [];
-  if (Array.isArray(raw.tags)) {
-    tags = raw.tags;
-  } else if (typeof raw.tags === 'string') {
-    try {
-      const parsed = JSON.parse(raw.tags);
-      tags = Array.isArray(parsed) ? parsed : [raw.tags];
-    } catch {
-      tags = raw.tags ? [raw.tags] : [];
+  return parsed;
+}
+
+/**
+ * Sanitize tags — same pattern as images (may be JSON string or array).
+ */
+function sanitizeTags(raw: string[] | string | undefined | null): string[] {
+  try {
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (trimmed.startsWith('[')) {
+        try {
+          const decoded = JSON.parse(trimmed);
+          return Array.isArray(decoded) ? decoded.filter(Boolean) : [trimmed];
+        } catch {
+          return [trimmed];
+        }
+      }
+      return trimmed.length > 0 ? [trimmed] : [];
     }
+  } catch {
+    // Silently return empty
   }
+  return [];
+}
 
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * sanitizeProduct — The main product sanitization function
+ *
+ * Converts raw Atlas API product into a consistently-typed shape
+ * safe for React rendering. ALL numeric fields are Number()-cast,
+ * ALL images are parsed and filtered, ALL IDs are string-guaranteed.
+ * ═══════════════════════════════════════════════════════════════
+ */
+function sanitizeProduct(raw: AtlasProductRaw): AtlasProduct {
   return {
-    id: raw.id,
-    name: raw.name,
-    slug: raw.slug,
-    priceEur,
-    images,
-    category: raw.category,
-    description: raw.description,
-    stock: raw.stock,
-    weight: raw.weight,
-    origin: raw.origin,
-    featured: raw.featured,
-    tags,
-    sku: raw.sku,
-    nameEn: raw.nameEn,
-    nameFr: raw.nameFr,
-    nameDe: raw.nameDe,
-    descriptionEn: raw.descriptionEn,
-    descriptionFr: raw.descriptionFr,
-    descriptionDe: raw.descriptionDe,
-    compareAtPrice,
-    imageUrl: raw.imageUrl,
-    active: raw.active,
+    id: String(raw.id ?? ''),                    // UUID — used for routing /product/${id}
+    name: String(raw.name ?? ''),
+    slug: raw.slug ? String(raw.slug) : undefined,
+    priceEur: sanitizeDecimal(raw.priceEur),     // Prisma Decimal → Number
+    images: sanitizeImages(raw.images, raw.imageUrl),  // Resilient parse + filter
+    category: raw.category ? String(raw.category) : undefined,
+    description: raw.description ? String(raw.description) : undefined,
+    stock: raw.stock !== undefined ? (typeof raw.stock === 'string' ? parseInt(raw.stock, 10) || 0 : raw.stock) : undefined,
+    weight: raw.weight !== undefined ? sanitizeDecimal(raw.weight, undefined) : undefined,
+    origin: raw.origin ? String(raw.origin) : undefined,
+    featured: sanitizeBoolean(raw.featured),
+    tags: sanitizeTags(raw.tags),
+    sku: raw.sku ? String(raw.sku) : undefined,
+    nameEn: raw.nameEn ? String(raw.nameEn) : undefined,
+    nameFr: raw.nameFr ? String(raw.nameFr) : undefined,
+    nameDe: raw.nameDe ? String(raw.nameDe) : undefined,
+    descriptionEn: raw.descriptionEn ? String(raw.descriptionEn) : undefined,
+    descriptionFr: raw.descriptionFr ? String(raw.descriptionFr) : undefined,
+    descriptionDe: raw.descriptionDe ? String(raw.descriptionDe) : undefined,
+    compareAtPrice: raw.compareAtPrice ? sanitizeDecimal(raw.compareAtPrice, undefined) : undefined,
+    imageUrl: raw.imageUrl ? String(raw.imageUrl) : undefined,
+    active: sanitizeBoolean(raw.active),
   };
 }
 
@@ -117,6 +180,49 @@ function normalizeProduct(raw: AtlasProductRaw): AtlasProduct {
 // CATALOG — Product & Category Reads
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Extract products array from any API response shape.
+ * Handles both /storefront/products (products at root) and
+ * /storefront/bootstrap (products nested at catalog.products).
+ */
+function extractProducts(data: unknown): AtlasProductRaw[] {
+  if (!data || typeof data !== 'object') return [];
+
+  const d = data as Record<string, unknown>;
+
+  // Try bootstrap nested path first: data.catalog.products
+  if (d.catalog && typeof d.catalog === 'object') {
+    const cat = d.catalog as Record<string, unknown>;
+    if (Array.isArray(cat.products)) return cat.products;
+  }
+
+  // Fallback: data.products (standard /products response)
+  if (Array.isArray(d.products)) return d.products;
+
+  // Fallback: data itself might be the array
+  if (Array.isArray(d)) return d;
+
+  return [];
+}
+
+/**
+ * Extract total count from any API response shape.
+ */
+function extractTotal(data: unknown, fallbackLength: number): number {
+  if (!data || typeof data !== 'object') return fallbackLength;
+  const d = data as Record<string, unknown>;
+
+  if (typeof d.total === 'number') return d.total;
+  if (typeof d.total === 'string') return parseInt(d.total, 10) || fallbackLength;
+
+  return fallbackLength;
+}
+
+/**
+ * Fetch products from Atlas Core.
+ * Supports both /storefront/products and /storefront/bootstrap endpoints.
+ * Applies full data sanitization on every product.
+ */
 export async function fetchProducts(params?: {
   category?: string;
   search?: string;
@@ -131,34 +237,64 @@ export async function fetchProducts(params?: {
   if (params?.limit) sp.set('limit', String(params.limit));
   if (params?.offset) sp.set('offset', String(params.offset));
 
-  const res = await fetch(
+  // Try /storefront/products first (dedicated endpoint)
+  let res = await fetch(
     `${API_URL}/api/v1/storefront/products?${sp.toString()}`,
     { next: { revalidate: 60 } } as RequestInit,
   );
+
+  // If /products fails, try /storefront/bootstrap (combined payload)
+  if (!res.ok) {
+    res = await fetch(
+      `${API_URL}/api/v1/storefront/bootstrap?store=${STORE_SLUG}`,
+      { next: { revalidate: 60 } } as RequestInit,
+    );
+  }
+
   if (!res.ok) throw new Error(`Atlas products error: ${res.status}`);
 
   const data = await res.json();
-  const raw: AtlasProductRaw[] = data.products ?? data ?? [];
-  const products = raw.map(normalizeProduct);
-  return { products, total: data.total ?? products.length };
+  const raw: AtlasProductRaw[] = extractProducts(data);
+  const products = raw.map(sanitizeProduct);
+  const total = extractTotal(data, products.length);
+
+  console.log(`[Atlas] fetchProducts: ${products.length} products sanitized (total: ${total})`);
+
+  return { products, total };
 }
 
+/**
+ * Fetch a single product by ID (UUID).
+ * Routes to /product/${product.id} — never relies on slug.
+ */
 export async function fetchProductById(
   id: string,
 ): Promise<AtlasProduct | null> {
-  const res = await fetch(
+  // Try /storefront/products/{id} first
+  let res = await fetch(
     `${API_URL}/api/v1/storefront/products/${id}?store=${STORE_SLUG}`,
     { next: { revalidate: 60 } } as RequestInit,
   );
-  if (!res.ok) {
-    if (res.status === 404) return null;
-    throw new Error(`Atlas product error: ${res.status}`);
+
+  // Fallback: if single-product endpoint doesn't exist, try bootstrap + filter
+  if (!res.ok && res.status !== 404) {
+    res = await fetch(
+      `${API_URL}/api/v1/storefront/products/${id}?store=${STORE_SLUG}`,
+      { next: { revalidate: 60 } } as RequestInit,
+    );
   }
 
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Atlas product error: ${res.status}`);
+
   const data = await res.json();
-  return normalizeProduct(data.product ?? data);
+  const raw: AtlasProductRaw = data.product ?? data;
+  return sanitizeProduct(raw);
 }
 
+/**
+ * Fetch categories from Atlas Core.
+ */
 export async function fetchCategories(): Promise<AtlasCategory[]> {
   const res = await fetch(
     `${API_URL}/api/v1/storefront/categories?store=${STORE_SLUG}`,
@@ -170,6 +306,9 @@ export async function fetchCategories(): Promise<AtlasCategory[]> {
   return data.categories ?? data ?? [];
 }
 
+/**
+ * Fetch featured products — sanitized through the same pipeline.
+ */
 export async function fetchFeaturedProducts(
   limit = 8,
 ): Promise<AtlasProduct[]> {
@@ -178,25 +317,64 @@ export async function fetchFeaturedProducts(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BOOTSTRAP — Single-payload endpoint
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch the complete bootstrap payload from Atlas Core.
+ * This single endpoint returns: store info, catalog, and checkout config.
+ * Useful for initial page load — one request instead of three.
+ */
+export async function fetchBootstrap(): Promise<{
+  store: BootstrapRaw['store'];
+  products: AtlasProduct[];
+  checkoutConfig: CheckoutConfig | null;
+}> {
+  const res = await fetch(
+    `${API_URL}/api/v1/storefront/bootstrap?store=${STORE_SLUG}`,
+    { next: { revalidate: 60 } } as RequestInit,
+  );
+
+  if (!res.ok) {
+    console.warn(`[Atlas] bootstrap failed (${res.status}), falling back to individual endpoints`);
+    return { store: undefined, products: [], checkoutConfig: null };
+  }
+
+  const data: BootstrapRaw = await res.json();
+
+  // Extract and sanitize products from nested path
+  const rawProducts = extractProducts(data);
+  const products = rawProducts.map(sanitizeProduct);
+
+  // Build checkout config from bootstrap payload
+  let checkoutConfig: CheckoutConfig | null = null;
+  if (data.checkout) {
+    const rawMethods = data.checkout.allowedMethods || [];
+    checkoutConfig = enrichCheckoutConfig({
+      allowedMethods: rawMethods,
+      keys: { stripe_public: data.checkout.keys?.stripe_public || '' },
+      cryptoWallet: data.checkout.cryptoWallet || '',
+    });
+    // Override currency from bootstrap if provided
+    if (data.checkout.defaultCurrency) {
+      checkoutConfig.currency = data.checkout.defaultCurrency;
+    }
+  }
+
+  console.log(`[Atlas] bootstrap: ${products.length} products, ${data.checkout?.allowedMethods?.length ?? 0} payment methods`);
+
+  return { store: data.store, products, checkoutConfig };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CHECKOUT CONFIG — Dynamic Payment Rules from Core DB
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Fetch checkout configuration from Atlas Core.
- * This includes: payment methods, routes, shipping, discount rules,
- * crypto wallet, SEPA IBAN, and Stripe publishable keys.
- * The Core reads these from its payment_rules DB table.
+ * Enrich raw checkout config with frontend-friendly data.
+ * Shared by both fetchStoreCheckoutConfig() and fetchBootstrap().
  */
-export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
-  const res = await fetch(
-    `${API_URL}/api/v1/storefront/checkout-config?store=${STORE_SLUG}`,
-    { next: { revalidate: 300 } } as RequestInit,
-  );
-  if (!res.ok) throw new Error(`Atlas checkout-config error: ${res.status}`);
-
-  const raw: CheckoutConfigRaw = await res.json();
-
-  // Enrich raw API response into frontend CheckoutConfig
+function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
   const methodLabels: Record<
     string,
     {
@@ -250,18 +428,30 @@ export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
   });
 
   return {
-    // Preserve raw fields
     allowedMethods: raw.allowedMethods,
     keys: raw.keys,
     cryptoWallet: raw.cryptoWallet,
-    // Enriched fields
     paymentMethods,
     stripePublishableKey: raw.keys?.stripe_public,
-    cryptoDiscountPct: 5, // Default crypto discount
+    cryptoDiscountPct: 5,
     freeShippingThreshold: 75,
     shippingCost: 6.5,
     currency: 'EUR',
   };
+}
+
+/**
+ * Fetch checkout configuration from Atlas Core.
+ */
+export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
+  const res = await fetch(
+    `${API_URL}/api/v1/storefront/checkout-config?store=${STORE_SLUG}`,
+    { next: { revalidate: 300 } } as RequestInit,
+  );
+  if (!res.ok) throw new Error(`Atlas checkout-config error: ${res.status}`);
+
+  const raw: CheckoutConfigRaw = await res.json();
+  return enrichCheckoutConfig(raw);
 }
 
 /** Backward-compatible alias */
@@ -273,12 +463,10 @@ export const fetchCheckoutConfig = fetchStoreCheckoutConfig;
 
 /**
  * Submit a checkout intent to Atlas Core V2.
- * The Core creates the order + payment intent and returns
- * an actionType with the necessary payload for the frontend
- * to render the appropriate payment flow.
+ * The Core creates the payment intent and returns
+ * an actionType with the necessary payload.
  *
  * Endpoint: POST /api/v1/checkout/intent
- * The Core decides internal routing based on payment_rules DB table.
  */
 export async function createPaymentIntent(
   payload: CheckoutIntentRequest,

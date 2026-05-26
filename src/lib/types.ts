@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// AZORES.BIO — Type System v2.1 (Atlas Core V2 Dumb Client)
-// Aligned with OpenAPI V2 spec
+// AZORES.BIO — Type System v3.0 (Atlas Core V2 Dumb Client)
+// Aligned with OpenAPI V3 — /storefront/bootstrap + /products
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Payment Types ──────────────────────────────────────────
@@ -19,19 +19,25 @@ export type ActionType =
   | 'SHOW_SEPA'            // Core routed to SEPA bank transfer
   | 'REDIRECT';            // Generic redirect
 
-// ─── Atlas Product (raw from API — before normalization) ────
+// ─── Atlas Product (raw from API — before sanitization) ────
+/**
+ * AtlasProductRaw — The raw shape as it arrives from the API.
+ * Prisma (backend) serializes Decimal as Strings, images may be
+ * a JSON-escaped string, and many fields are optional.
+ * The adapter layer sanitizes all of this into AtlasProduct.
+ */
 export interface AtlasProductRaw {
   id: string;
   name: string;
   slug?: string;
-  priceEur: number | string;
-  images?: string | string[];
+  priceEur: number | string;        // Prisma Decimal → "29.99"
+  images?: string | string[];       // May be JSON-escaped string
   category?: string;
   description?: string;
-  stock?: number;
-  weight?: number;
+  stock?: number | string;          // Prisma may serialize as string
+  weight?: number | string;
   origin?: string;
-  featured?: boolean;
+  featured?: boolean | string;
   tags?: string[] | string;
   sku?: string;
   nameEn?: string;
@@ -40,18 +46,18 @@ export interface AtlasProductRaw {
   descriptionEn?: string;
   descriptionFr?: string;
   descriptionDe?: string;
-  compareAtPrice?: number | string;
+  compareAtPrice?: number | string;  // Prisma Decimal → "39.99"
   imageUrl?: string;
-  active?: boolean;
+  active?: boolean | string;
 }
 
-// ─── Normalized Product (after adapter) ─────────────────────
+// ─── Normalized Product (after adapter sanitization) ───────
 export interface AtlasProduct {
-  id: string;             // UUID guaranteed by Atlas Core
+  id: string;             // UUID guaranteed by Atlas Core — used for routing
   name: string;
   slug?: string;
-  priceEur: number;       // Always number after normalization
-  images: string[];       // Always string[] after normalization
+  priceEur: number;       // Always number after sanitization (Number())
+  images: string[];       // Always string[] after sanitization — empty images filtered
   category?: string;      // Category slug
   description?: string;
   stock?: number;
@@ -85,54 +91,71 @@ export interface AtlasCategory {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BOOTSTRAP — /storefront/bootstrap response
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * BootstrapRaw — The raw shape from GET /storefront/bootstrap?store=azores-bio
+ * Products are nested at data.catalog.products (NOT at root).
+ */
+export interface BootstrapRaw {
+  store?: {
+    id?: string;
+    slug?: string;
+    name?: string;
+    tier?: string;
+    status?: string;
+  };
+  catalog?: {
+    stockManaged?: boolean;
+    products?: AtlasProductRaw[];
+  };
+  checkout?: {
+    allowedMethods?: string[];
+    defaultCurrency?: string;
+    cryptoWallet?: string | null;
+    routing?: Record<string, unknown>;
+    keys?: {
+      stripe_public?: string | null;
+    };
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CHECKOUT CONFIG — Raw API Response vs Enriched Frontend Type
 // ═══════════════════════════════════════════════════════════════
 
 /**
  * CheckoutConfigRaw — Exact shape returned by
  * GET /storefront/checkout-config?store=azores-bio
- *
- * The API returns a flat list of allowed method names, a keys
- * object with public credentials, and a crypto wallet address.
  */
 export interface CheckoutConfigRaw {
-  allowedMethods: string[];             // e.g. ["card", "multibanco", "mbway", "crypto"]
+  allowedMethods: string[];
   keys: {
-    stripe_public: string;              // Stripe publishable key (pk_live_xxx)
+    stripe_public: string;
   };
-  cryptoWallet: string;                 // Destination wallet address (0x...)
+  cryptoWallet: string;
 }
 
 /**
  * CheckoutConfig — Enriched version used by the frontend.
- *
- * The raw API returns `allowedMethods` + `keys` + `cryptoWallet`,
- * but the frontend needs richer per-method data (labels, icons,
- * descriptions, KYC flags, provider names). The adapter layer
- * (atlas.ts) enriches the raw response into this shape.
- *
- * Optional raw-API fields (`allowedMethods`, `keys`, `cryptoWallet`)
- * are included so the adapter can preserve them when merging.
  */
 export interface CheckoutConfig {
-  // ── Raw API fields (preserved by adapter) ──
-  allowedMethods?: string[];            // From API: ["card", "multibanco", "mbway", "crypto"]
+  allowedMethods?: string[];
   keys?: {
-    stripe_public: string;              // From API: Stripe publishable key
+    stripe_public: string;
   };
-  cryptoWallet?: string;                // From API: destination wallet (0x...)
-
-  // ── Enriched fields (built by adapter) ──
+  cryptoWallet?: string;
   paymentMethods: PaymentMethodConfig[];
-  stripePublishableKey?: string;        // Same as keys.stripe_public (convenience alias)
+  stripePublishableKey?: string;
   shipping?: ShippingConfig;
   freeShippingThreshold?: number;
   shippingCost?: number;
   cryptoDiscountPct?: number;
-  iban?: string;                        // SEPA IBAN from Core DB
-  beneficiary?: string;                 // SEPA beneficiary from Core DB
-  currency?: string;                    // Default: "EUR"
-  paymentRoutes?: PaymentRouteConfig[]; // Route rules from Core DB
+  iban?: string;
+  beneficiary?: string;
+  currency?: string;
+  paymentRoutes?: PaymentRouteConfig[];
 }
 
 export interface PaymentMethodConfig {
@@ -142,16 +165,16 @@ export interface PaymentMethodConfig {
   badge?: string;
   icon?: string;
   requiresPhone?: boolean;
-  requiresKYC?: boolean;     // If true → NIF + birthDate mandatory
-  provider?: string;         // e.g. "STRIPE_PT_002", "STRIPE_CRYPTO", "ONRAMP_MONEY"
+  requiresKYC?: boolean;
+  provider?: string;
 }
 
 /** Dynamic payment route from Core DB */
 export interface PaymentRouteConfig {
   method: PaymentMethod;
-  provider: string;          // e.g. "STRIPE_PT_002", "PROXY_MBWAY", "ONRAMP_MONEY"
-  gateway?: string;          // e.g. "stripe", "proxy.nexflowx.tech"
-  wallet?: string;           // crypto destination wallet (if applicable)
+  provider: string;
+  gateway?: string;
+  wallet?: string;
 }
 
 export interface ShippingConfig {
@@ -169,19 +192,11 @@ export interface ShippingMethodConfig {
 }
 
 // ─── Checkout Intent Request (Core V2 Contract) ─────────────
-/**
- * POST /checkout/intent
- *
- * The `currency` field is optional — the API defaults to "EUR"
- * but the frontend may send it explicitly.
- *
- * `customer.nif` is mandatory when method === "crypto" (KYC/AML).
- */
 export interface CheckoutIntentRequest {
-  store: string;                     // "azores-bio"
-  method: PaymentMethod;             // "card" | "multibanco" | "mbway" | "crypto"
-  amount: number;                    // Final amount in EUR (after discounts)
-  currency?: string;                 // "EUR" (optional — defaults to EUR on server)
+  store: string;
+  method: PaymentMethod;
+  amount: number;
+  currency?: string;
   customer: CheckoutCustomer;
   items: CheckoutItem[];
 }
@@ -195,8 +210,8 @@ export interface CheckoutItem {
 export interface CheckoutCustomer {
   email: string;
   fullName: string;
-  nif?: string;            // NIF / SSN — **mandatory for crypto (KYC/AML)**
-  birthDate?: string;       // YYYY-MM-DD — mandatory for crypto (KYC/AML ≥18)
+  nif?: string;
+  birthDate?: string;
   phone?: string;
   address?: string;
   city?: string;
@@ -209,18 +224,18 @@ export interface AtlasCheckoutResponse {
   transactionId: string;
   actionType: ActionType;
   payload: {
-    clientSecret?: string;       // For STRIPE_ELEMENTS / SHOW_CRYPTO_WIDGET
-    publishableKey?: string;     // Stripe public key for the specific route
+    clientSecret?: string;
+    publishableKey?: string;
     orderId?: string;
-    phone?: string;              // MBWAY phone
-    entity?: string;             // Multibanco entity
-    reference?: string;          // Multibanco reference
-    deadline?: string;           // Multibanco payment deadline
+    phone?: string;
+    entity?: string;
+    reference?: string;
+    deadline?: string;
     amount?: number;
-    iban?: string;               // SEPA IBAN
-    beneficiary?: string;        // SEPA beneficiary
-    cryptoWallet?: string;       // Destination wallet for crypto
-    url?: string;                // Redirect URL
+    iban?: string;
+    beneficiary?: string;
+    cryptoWallet?: string;
+    url?: string;
   };
 }
 
@@ -228,24 +243,12 @@ export interface AtlasCheckoutResponse {
 // ORDERS — POST /orders
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * OrdersRequest — POST /orders
- *
- * Creates a new order in the system. The order starts with
- * status PENDING_SETTLEMENT until payment is confirmed.
- */
 export interface OrdersRequest {
-  storeSlug: string;              // e.g. "azores-bio"
+  storeSlug: string;
   customer: CheckoutCustomer;
   items: CheckoutItem[];
 }
 
-/**
- * Order status lifecycle:
- * PENDING_SETTLEMENT → PAID → PROCESSING → SHIPPED → DELIVERED
- *                    ↘ CANCELLED
- *                    ↘ REFUNDED
- */
 export type OrderStatus =
   | 'PENDING_SETTLEMENT'
   | 'PAID'
@@ -255,9 +258,6 @@ export type OrderStatus =
   | 'CANCELLED'
   | 'REFUNDED';
 
-/**
- * AtlasOrdersResponse — POST /orders response (201 Created)
- */
 export interface AtlasOrdersResponse {
   orderId: string;
   storeSlug: string;
@@ -265,8 +265,8 @@ export interface AtlasOrdersResponse {
   customer: CheckoutCustomer;
   items: CheckoutItem[];
   totalEur: number;
-  createdAt: string;              // ISO 8601
-  updatedAt: string;              // ISO 8601
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── CRM Stock Settlement Request ───────────────────────────
@@ -278,7 +278,7 @@ export interface StockSettlementRequest {
 
 // ─── Cart Item (Frontend State) ─────────────────────────────
 export interface CartItem {
-  productId: string;       // UUID from Atlas
+  productId: string;       // UUID from Atlas — used for routing
   name: string;
   nameEn?: string | null;
   priceEur: number;        // Always EUR, always number
