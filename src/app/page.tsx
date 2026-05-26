@@ -6,7 +6,7 @@ import { ArrowRight, Star, Leaf, Award, Truck, MapPin } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
 import { AtlasProduct, AtlasCategory } from '@/lib/types';
-import { fetchFeaturedProducts, fetchCategories } from '@/lib/atlas';
+import { fetchBootstrap, CATEGORY_META } from '@/lib/atlas';
 import { OrganizationJsonLd, WebSiteJsonLd } from '@/components/JsonLd';
 
 // ─── Featured islands for Island Showcase ────────────────────
@@ -34,12 +34,6 @@ const FEATURED_ISLANDS = [
   },
 ];
 
-const CATEGORY_ICONS: Record<string, string> = {
-  queijos: '🧀', manteigas: '🧈', conservas: '🐟', vinhos: '🍷', licores: '🍶',
-  cha: '🍵', pastelaria: '🍰', compotas: '🍯', pimentas: '🌶️', bebidas: '🥤',
-  charcutaria: '🥩', outros: '🎁',
-};
-
 export default function Home() {
   const { t, getCategoryName } = useStore();
   const [heroLoaded, setHeroLoaded] = useState(false);
@@ -52,18 +46,18 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Featured products
+  // Fetch bootstrap — single call gets products + categories
   useEffect(() => {
-    fetchFeaturedProducts()
-      .then((products) => setFeaturedProducts(products))
-      .catch(() => setFeaturedProducts([]));
-  }, []);
-
-  // Categories
-  useEffect(() => {
-    fetchCategories()
-      .then((cats) => setCategories(cats))
-      .catch(() => setCategories([]));
+    fetchBootstrap()
+      .then((data) => {
+        // First 8 products as "featured"
+        setFeaturedProducts(data.products.slice(0, 8));
+        setCategories(data.categories);
+      })
+      .catch(() => {
+        setFeaturedProducts([]);
+        setCategories([]);
+      });
   }, []);
 
   const handleNewsletter = useCallback((e: React.FormEvent) => {
@@ -169,7 +163,7 @@ export default function Home() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          3. FEATURED PRODUCTS — Dynamic from Atlas Core
+          3. FEATURED PRODUCTS — Dynamic from Atlas Bootstrap
       ═══════════════════════════════════════════════════════════════════ */}
       <section className="py-16 sm:py-20 md:py-28">
         <div className="container">
@@ -272,7 +266,7 @@ export default function Home() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          5. CATEGORIES GRID — Dynamic from Atlas Core
+          5. CATEGORIES GRID — Derived from Bootstrap product data
       ═══════════════════════════════════════════════════════════════════ */}
       <section className="py-16 sm:py-20 bg-[#ede8e0]">
         <div className="container">
@@ -287,7 +281,7 @@ export default function Home() {
               .map((cat) => (
                 <Link key={cat.slug} href={`/store?cat=${cat.slug}`}>
                   <div className="group flex flex-col items-center gap-3 bg-white p-4 sm:p-5 cursor-pointer hover:bg-[#1a3a3a] transition-all duration-300 min-h-[44px]">
-                    <span className="text-2xl sm:text-3xl">{CATEGORY_ICONS[cat.slug] ?? '🌿'}</span>
+                    <span className="text-2xl sm:text-3xl">{cat.icon || CATEGORY_META[cat.slug]?.icon || '🌿'}</span>
                     <div className="text-center">
                       <p className="text-xs sm:text-sm font-medium text-[#1a3a3a] group-hover:text-white transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
                         {getCategoryName(cat)}

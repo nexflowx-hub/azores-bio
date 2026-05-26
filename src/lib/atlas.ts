@@ -1,23 +1,29 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- * Atlas Adapter v3.0 — Universal Entry Point with Data Sanitization
+ * Atlas Adapter v4.0 — Bootstrap-First Architecture
  * AZORES.BIO Dumb Client / Relay Node
  * ═══════════════════════════════════════════════════════════════
  *
- * CRITICAL: Prisma (backend) serializes Decimal fields as Strings.
- * This adapter applies rigorous sanitization to ensure the React
- * frontend always receives consistently-typed data.
+ * ARCHITECTURE: The /storefront/bootstrap endpoint is the single
+ * source of truth. It returns store + catalog + checkout in one
+ * call. All other fetch functions derive from this cached payload.
  *
- * Key sanitization rules:
- *   1. Decimal cast: priceEur: "29.99" → Number("29.99") → 29.99
- *   2. Image parse: "['url1','url2']" → JSON.parse → ['url1','url2']
- *   3. ID routing: Always use product.id (UUID) for /product/${id}
- *   4. Nested path: bootstrap products at data.catalog.products
- *   5. Empty image filter: Never render broken/empty image URLs
+ * Key design decisions:
+ *   1. Bootstrap-first: All data comes from /storefront/bootstrap
+ *   2. In-memory cache: Avoid re-fetching 460 products on every nav
+ *   3. Category derivation: Products lack "category" field — we
+ *      derive categories from product name keywords (PT language)
+ *   4. Data sanitization: Decimal cast, image parse, ID routing
+ *   5. Client-side filtering: Search, sort, category done in-browser
  *
- * Configuration (only 2 env vars):
- *   NEXT_PUBLIC_ATLAS_API_URL  → https://api.atlasglobal.digital
- *   NEXT_PUBLIC_STORE_SLUG     → azores-bio
+ * Working endpoints:
+ *   GET /api/v1/storefront/bootstrap?store=azores-bio  ✅
+ *   GET /api/v1/storefront/products?store=azores-bio   ✅ (fallback)
+ *
+ * Non-existent endpoints (DO NOT CALL):
+ *   GET /api/v1/storefront/products/{id}               ❌
+ *   GET /api/v1/storefront/categories                  ❌
+ *   GET /api/v1/storefront/checkout-config             ❌
  */
 
 import {
@@ -41,6 +47,29 @@ const API_URL =
   process.env.NEXT_PUBLIC_ATLAS_API_URL || 'https://api.atlasglobal.digital';
 const STORE_SLUG =
   process.env.NEXT_PUBLIC_STORE_SLUG || 'azores-bio';
+
+// ═══════════════════════════════════════════════════════════════
+// IN-MEMORY CACHE — Avoid re-fetching bootstrap on every page
+// ═══════════════════════════════════════════════════════════════
+
+interface BootstrapCache {
+  products: AtlasProduct[];
+  categories: AtlasCategory[];
+  checkoutConfig: CheckoutConfig | null;
+  store: BootstrapRaw['store'];
+  fetchedAt: number;
+}
+
+let cache: BootstrapCache | null = null;
+const CACHE_TTL_MS = 60_000; // 1 minute — matches API revalidate
+
+function isCacheValid(): boolean {
+  return cache !== null && (Date.now() - cache.fetchedAt) < CACHE_TTL_MS;
+}
+
+function clearCache(): void {
+  cache = null;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // DATA SANITIZATION — The core of the adapter
@@ -70,7 +99,7 @@ function sanitizeBoolean(value: boolean | string | undefined | null): boolean | 
 /**
  * Sanitize images array.
  * The API may return images as:
- *   - A proper string[] array
+ *   - A proper string[] array (current bootstrap format)
  *   - A JSON-escaped string: '["url1","url2"]'
  *   - A single URL string
  *   - undefined / null
@@ -82,10 +111,8 @@ function sanitizeImages(raw: string | string[] | undefined | null, fallbackUrl?:
 
   try {
     if (Array.isArray(raw)) {
-      // Already an array — just filter empties
       parsed = raw.filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
     } else if (typeof raw === 'string') {
-      // Could be a JSON-escaped string from Prisma/legacy scrapers
       const trimmed = raw.trim();
       if (trimmed.startsWith('[')) {
         try {
@@ -96,11 +123,9 @@ function sanitizeImages(raw: string | string[] | undefined | null, fallbackUrl?:
             parsed = [decoded];
           }
         } catch {
-          // Not valid JSON — treat as single URL
           if (trimmed.length > 0) parsed = [trimmed];
         }
       } else if (trimmed.length > 0) {
-        // Plain string URL
         parsed = [trimmed];
       }
     }
@@ -108,7 +133,6 @@ function sanitizeImages(raw: string | string[] | undefined | null, fallbackUrl?:
     parsed = [];
   }
 
-  // Fallback: use imageUrl if images array is empty
   if (parsed.length === 0 && fallbackUrl && typeof fallbackUrl === 'string' && fallbackUrl.trim().length > 0) {
     parsed = [fallbackUrl.trim()];
   }
@@ -143,19 +167,15 @@ function sanitizeTags(raw: string[] | string | undefined | null): string[] {
 /**
  * ═══════════════════════════════════════════════════════════════
  * sanitizeProduct — The main product sanitization function
- *
- * Converts raw Atlas API product into a consistently-typed shape
- * safe for React rendering. ALL numeric fields are Number()-cast,
- * ALL images are parsed and filtered, ALL IDs are string-guaranteed.
  * ═══════════════════════════════════════════════════════════════
  */
 function sanitizeProduct(raw: AtlasProductRaw): AtlasProduct {
   return {
-    id: String(raw.id ?? ''),                    // UUID — used for routing /product/${id}
+    id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     slug: raw.slug ? String(raw.slug) : undefined,
-    priceEur: sanitizeDecimal(raw.priceEur),     // Prisma Decimal → Number
-    images: sanitizeImages(raw.images, raw.imageUrl),  // Resilient parse + filter
+    priceEur: sanitizeDecimal(raw.priceEur),
+    images: sanitizeImages(raw.images, raw.imageUrl),
     category: raw.category ? String(raw.category) : undefined,
     description: raw.description ? String(raw.description) : undefined,
     stock: raw.stock !== undefined ? (typeof raw.stock === 'string' ? parseInt(raw.stock, 10) || 0 : raw.stock) : undefined,
@@ -177,51 +197,194 @@ function sanitizeProduct(raw: AtlasProductRaw): AtlasProduct {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CATALOG — Product & Category Reads
+// CATEGORY DERIVATION — From product name keywords
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Extract products array from any API response shape.
- * Handles both /storefront/products (products at root) and
- * /storefront/bootstrap (products nested at catalog.products).
+ * Derive a category slug from a product name using keyword matching.
+ * The bootstrap endpoint does NOT return category fields.
+ * We use Portuguese product name keywords to categorize.
  */
-function extractProducts(data: unknown): AtlasProductRaw[] {
-  if (!data || typeof data !== 'object') return [];
+function deriveCategoryFromName(name: string): string {
+  const n = name.toLowerCase();
 
-  const d = data as Record<string, unknown>;
+  // Priority order: most specific first
+  if (/\bvinho\b|\bverdelho\b|\barinto\b|\bterrantz\b|\bpedras brancas\b|\breserva\b.*\b\d{4}\b/i.test(n) && /\b750ml\b|\bvinho\b/i.test(n)) return 'vinhos';
+  if (/\bcompota\b|\bdoce de\b|\bdoces?\b/i.test(n) && !/\blicor\b/i.test(n)) return 'compotas';
+  if (/\bchá\b|\bcha\b|\bpo ejo\b|\bcidreira\b|\berva pr[ií]nc[ií]pe\b/i.test(n)) return 'cha';
+  if (/\bsumo\b|\bkima\b/i.test(n)) return 'bebidas';
+  if (/\blicor\b|\blicoreira\b|\bminiatura.*licor\b/i.test(n)) return 'licores';
+  if (/\bpimenta\b/i.test(n)) return 'pimentas';
+  if (/\bconserva\b|\batum\b|\bbacalhau\b|\bsarda\b|\bcaval[a]a\b|\bfilete\b|\bflocos?\b/i.test(n)) return 'conservas';
+  if (/\bqueijo\b/i.test(n)) return 'queijos';
+  if (/\bmanteiga\b/i.test(n)) return 'manteigas';
+  if (/\bcharcutaria\b|\bsalame\b|\bchouri[cç]o\b|\bmorcela\b|\bpresunto\b/i.test(n)) return 'charcutaria';
+  if (/\bpastel\b|\bbolo\b|\bbiscoto\b|\brosc[ao]\b/i.test(n)) return 'pastelaria';
+  if (/\bsabonete\b|\bsabão\b|\bcreme\b|\baloé\b|\bshampoo\b|\bcosm[eé]tic/i.test(n)) return 'cosmetica';
+  if (/\bmel\b/i.test(n)) return 'mel';
 
-  // Try bootstrap nested path first: data.catalog.products
-  if (d.catalog && typeof d.catalog === 'object') {
-    const cat = d.catalog as Record<string, unknown>;
-    if (Array.isArray(cat.products)) return cat.products;
+  return 'outros';
+}
+
+/**
+ * Category metadata — display names, icons, display order.
+ */
+const CATEGORY_META: Record<string, { name: string; namePt: string; icon: string; order: number }> = {
+  queijos:      { name: 'Cheeses',    namePt: 'Queijos',       icon: '🧀', order: 1 },
+  manteigas:    { name: 'Butters',    namePt: 'Manteigas',     icon: '🧈', order: 2 },
+  conservas:    { name: 'Conserves',  namePt: 'Conservas',     icon: '🐟', order: 3 },
+  vinhos:       { name: 'Wines',      namePt: 'Vinhos',        icon: '🍷', order: 4 },
+  licores:      { name: 'Liqueurs',   namePt: 'Licores',       icon: '🍶', order: 5 },
+  cha:          { name: 'Teas',       namePt: 'Chá',           icon: '🍵', order: 6 },
+  compotas:     { name: 'Jams',       namePt: 'Compotas',      icon: '🍯', order: 7 },
+  pimentas:     { name: 'Peppers',    namePt: 'Pimentas',      icon: '🌶️', order: 8 },
+  bebidas:      { name: 'Drinks',     namePt: 'Bebidas',       icon: '🥤', order: 9 },
+  pastelaria:   { name: 'Pastry',     namePt: 'Pastelaria',    icon: '🍰', order: 10 },
+  charcutaria:  { name: 'Charcuterie',namePt: 'Charcutaria',   icon: '🥩', order: 11 },
+  mel:          { name: 'Honey',      namePt: 'Mel',           icon: '🍯', order: 12 },
+  cosmetica:    { name: 'Cosmetics',  namePt: 'Cosmética',     icon: '🧴', order: 13 },
+  outros:       { name: 'Other',      namePt: 'Outros',        icon: '🎁', order: 99 },
+};
+
+/**
+ * Build categories from a list of products.
+ * Counts products per derived category, sorts by product count desc.
+ */
+function buildCategories(products: AtlasProduct[]): AtlasCategory[] {
+  const countMap: Record<string, number> = {};
+
+  for (const p of products) {
+    const cat = p.category || deriveCategoryFromName(p.name);
+    p.category = cat; // Assign derived category to product
+    countMap[cat] = (countMap[cat] || 0) + 1;
   }
 
-  // Fallback: data.products (standard /products response)
-  if (Array.isArray(d.products)) return d.products;
+  const categories: AtlasCategory[] = Object.entries(countMap)
+    .map(([slug, count]) => {
+      const meta = CATEGORY_META[slug] || { name: slug, namePt: slug, icon: '🌿', order: 50 };
+      return {
+        slug,
+        name: meta.namePt,
+        namePt: meta.namePt,
+        nameEn: meta.name,
+        productCount: count,
+        icon: meta.icon,
+      };
+    })
+    .filter((c) => c.productCount > 0)
+    .sort((a, b) => {
+      const orderA = CATEGORY_META[a.slug]?.order ?? 50;
+      const orderB = CATEGORY_META[b.slug]?.order ?? 50;
+      return orderA - orderB;
+    });
 
-  // Fallback: data itself might be the array
-  if (Array.isArray(d)) return d;
-
-  return [];
+  return categories;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// BOOTSTRAP — The single source of truth
+// ═══════════════════════════════════════════════════════════════
+
 /**
- * Extract total count from any API response shape.
+ * Fetch the complete bootstrap payload from Atlas Core.
+ * This is the PRIMARY data-fetching function.
+ *
+ * Returns cached data if still fresh, otherwise fetches from API.
  */
-function extractTotal(data: unknown, fallbackLength: number): number {
-  if (!data || typeof data !== 'object') return fallbackLength;
-  const d = data as Record<string, unknown>;
+export async function fetchBootstrap(): Promise<{
+  store: BootstrapRaw['store'];
+  products: AtlasProduct[];
+  categories: AtlasCategory[];
+  checkoutConfig: CheckoutConfig | null;
+}> {
+  // Return cached data if still fresh
+  if (isCacheValid() && cache) {
+    console.log(`[Atlas] fetchBootstrap: CACHE HIT (${cache.products.length} products)`);
+    return {
+      store: cache.store,
+      products: cache.products,
+      categories: cache.categories,
+      checkoutConfig: cache.checkoutConfig,
+    };
+  }
 
-  if (typeof d.total === 'number') return d.total;
-  if (typeof d.total === 'string') return parseInt(d.total, 10) || fallbackLength;
+  try {
+    const res = await fetch(
+      `${API_URL}/api/v1/storefront/bootstrap?store=${STORE_SLUG}`,
+      { next: { revalidate: 60 } } as RequestInit,
+    );
 
-  return fallbackLength;
+    if (!res.ok) {
+      console.warn(`[Atlas] bootstrap failed (${res.status})`);
+      // Return stale cache if available
+      if (cache) {
+        console.log(`[Atlas] returning stale cache`);
+        return {
+          store: cache.store,
+          products: cache.products,
+          categories: cache.categories,
+          checkoutConfig: cache.checkoutConfig,
+        };
+      }
+      return { store: undefined, products: [], categories: [], checkoutConfig: null };
+    }
+
+    const data: BootstrapRaw = await res.json();
+
+    // Extract products from nested path: data.catalog.products
+    const rawProducts: AtlasProductRaw[] = data?.catalog?.products ?? [];
+    const products = rawProducts.map(sanitizeProduct);
+
+    // Derive categories from product names
+    const categories = buildCategories(products);
+
+    // Build checkout config from bootstrap payload
+    let checkoutConfig: CheckoutConfig | null = null;
+    if (data.checkout) {
+      const rawMethods = data.checkout.allowedMethods || [];
+      checkoutConfig = enrichCheckoutConfig({
+        allowedMethods: rawMethods,
+        keys: { stripe_public: data.checkout.keys?.stripe_public || '' },
+        cryptoWallet: data.checkout.cryptoWallet || '',
+      });
+      if (data.checkout.defaultCurrency) {
+        checkoutConfig.currency = data.checkout.defaultCurrency;
+      }
+    }
+
+    // Update cache
+    cache = {
+      store: data.store,
+      products,
+      categories,
+      checkoutConfig,
+      fetchedAt: Date.now(),
+    };
+
+    console.log(`[Atlas] fetchBootstrap: ${products.length} products, ${categories.length} categories, ${data.checkout?.allowedMethods?.length ?? 0} payment methods`);
+
+    return { store: data.store, products, categories, checkoutConfig };
+  } catch (err) {
+    console.error('[Atlas] fetchBootstrap error:', err);
+    if (cache) {
+      return {
+        store: cache.store,
+        products: cache.products,
+        categories: cache.categories,
+        checkoutConfig: cache.checkoutConfig,
+      };
+    }
+    return { store: undefined, products: [], categories: [], checkoutConfig: null };
+  }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// DERIVED FETCH FUNCTIONS — All use bootstrap cache
+// ═══════════════════════════════════════════════════════════════
+
 /**
- * Fetch products from Atlas Core.
- * Supports both /storefront/products and /storefront/bootstrap endpoints.
- * Applies full data sanitization on every product.
+ * Fetch products — uses bootstrap cache, applies client-side filters.
+ * Category, search, and sort are applied in-browser.
  */
 export async function fetchProducts(params?: {
   category?: string;
@@ -230,140 +393,85 @@ export async function fetchProducts(params?: {
   limit?: number;
   offset?: number;
 }): Promise<{ products: AtlasProduct[]; total: number }> {
-  const sp = new URLSearchParams({ store: STORE_SLUG });
-  if (params?.category) sp.set('category', params.category);
-  if (params?.search) sp.set('search', params.search);
-  if (params?.sort) sp.set('sort', params.sort);
-  if (params?.limit) sp.set('limit', String(params.limit));
-  if (params?.offset) sp.set('offset', String(params.offset));
+  const { products } = await fetchBootstrap();
 
-  // Try /storefront/products first (dedicated endpoint)
-  let res = await fetch(
-    `${API_URL}/api/v1/storefront/products?${sp.toString()}`,
-    { next: { revalidate: 60 } } as RequestInit,
-  );
+  let filtered = [...products];
 
-  // If /products fails, try /storefront/bootstrap (combined payload)
-  if (!res.ok) {
-    res = await fetch(
-      `${API_URL}/api/v1/storefront/bootstrap?store=${STORE_SLUG}`,
-      { next: { revalidate: 60 } } as RequestInit,
+  // Filter by category
+  if (params?.category && params.category !== 'all') {
+    filtered = filtered.filter((p) => p.category === params.category);
+  }
+
+  // Filter by search term
+  if (params?.search) {
+    const q = params.search.toLowerCase();
+    filtered = filtered.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description && p.description.toLowerCase().includes(q)) ||
+        (p.origin && p.origin.toLowerCase().includes(q)),
     );
   }
 
-  if (!res.ok) throw new Error(`Atlas products error: ${res.status}`);
+  // Sort
+  switch (params?.sort) {
+    case 'price_asc':
+      filtered.sort((a, b) => a.priceEur - b.priceEur);
+      break;
+    case 'price_desc':
+      filtered.sort((a, b) => b.priceEur - a.priceEur);
+      break;
+    case 'name':
+      filtered.sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    case 'featured':
+    default:
+      // Keep original order from API (likely insertion/import order)
+      break;
+  }
 
-  const data = await res.json();
-  const raw: AtlasProductRaw[] = extractProducts(data);
-  const products = raw.map(sanitizeProduct);
-  const total = extractTotal(data, products.length);
+  const total = filtered.length;
 
-  console.log(`[Atlas] fetchProducts: ${products.length} products sanitized (total: ${total})`);
+  // Apply offset/limit
+  const offset = params?.offset ?? 0;
+  const limit = params?.limit ?? filtered.length;
+  filtered = filtered.slice(offset, offset + limit);
 
-  return { products, total };
+  console.log(`[Atlas] fetchProducts: ${filtered.length}/${total} (cat=${params?.category}, search=${params?.search})`);
+
+  return { products: filtered, total };
 }
 
 /**
  * Fetch a single product by ID (UUID).
- * Routes to /product/${product.id} — never relies on slug.
+ * Uses bootstrap cache since /products/{id} endpoint doesn't exist.
  */
-export async function fetchProductById(
-  id: string,
-): Promise<AtlasProduct | null> {
-  // Try /storefront/products/{id} first
-  let res = await fetch(
-    `${API_URL}/api/v1/storefront/products/${id}?store=${STORE_SLUG}`,
-    { next: { revalidate: 60 } } as RequestInit,
-  );
+export async function fetchProductById(id: string): Promise<AtlasProduct | null> {
+  const { products } = await fetchBootstrap();
+  const product = products.find((p) => p.id === id) || null;
 
-  // Fallback: if single-product endpoint doesn't exist, try bootstrap + filter
-  if (!res.ok && res.status !== 404) {
-    res = await fetch(
-      `${API_URL}/api/v1/storefront/products/${id}?store=${STORE_SLUG}`,
-      { next: { revalidate: 60 } } as RequestInit,
-    );
+  if (!product) {
+    console.warn(`[Atlas] fetchProductById: product ${id} not found`);
   }
 
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Atlas product error: ${res.status}`);
-
-  const data = await res.json();
-  const raw: AtlasProductRaw = data.product ?? data;
-  return sanitizeProduct(raw);
+  return product;
 }
 
 /**
- * Fetch categories from Atlas Core.
+ * Fetch categories — derived from bootstrap product data.
  */
 export async function fetchCategories(): Promise<AtlasCategory[]> {
-  const res = await fetch(
-    `${API_URL}/api/v1/storefront/categories?store=${STORE_SLUG}`,
-    { next: { revalidate: 120 } } as RequestInit,
-  );
-  if (!res.ok) throw new Error(`Atlas categories error: ${res.status}`);
-
-  const data = await res.json();
-  return data.categories ?? data ?? [];
+  const { categories } = await fetchBootstrap();
+  return categories;
 }
 
 /**
- * Fetch featured products — sanitized through the same pipeline.
+ * Fetch featured products — returns first N products from bootstrap.
+ * Since products don't have a "featured" flag, we return the first N.
  */
-export async function fetchFeaturedProducts(
-  limit = 8,
-): Promise<AtlasProduct[]> {
-  const { products } = await fetchProducts({ sort: 'featured', limit });
-  return products.filter((p) => p.featured).slice(0, limit);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// BOOTSTRAP — Single-payload endpoint
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Fetch the complete bootstrap payload from Atlas Core.
- * This single endpoint returns: store info, catalog, and checkout config.
- * Useful for initial page load — one request instead of three.
- */
-export async function fetchBootstrap(): Promise<{
-  store: BootstrapRaw['store'];
-  products: AtlasProduct[];
-  checkoutConfig: CheckoutConfig | null;
-}> {
-  const res = await fetch(
-    `${API_URL}/api/v1/storefront/bootstrap?store=${STORE_SLUG}`,
-    { next: { revalidate: 60 } } as RequestInit,
-  );
-
-  if (!res.ok) {
-    console.warn(`[Atlas] bootstrap failed (${res.status}), falling back to individual endpoints`);
-    return { store: undefined, products: [], checkoutConfig: null };
-  }
-
-  const data: BootstrapRaw = await res.json();
-
-  // Extract and sanitize products from nested path
-  const rawProducts = extractProducts(data);
-  const products = rawProducts.map(sanitizeProduct);
-
-  // Build checkout config from bootstrap payload
-  let checkoutConfig: CheckoutConfig | null = null;
-  if (data.checkout) {
-    const rawMethods = data.checkout.allowedMethods || [];
-    checkoutConfig = enrichCheckoutConfig({
-      allowedMethods: rawMethods,
-      keys: { stripe_public: data.checkout.keys?.stripe_public || '' },
-      cryptoWallet: data.checkout.cryptoWallet || '',
-    });
-    // Override currency from bootstrap if provided
-    if (data.checkout.defaultCurrency) {
-      checkoutConfig.currency = data.checkout.defaultCurrency;
-    }
-  }
-
-  console.log(`[Atlas] bootstrap: ${products.length} products, ${data.checkout?.allowedMethods?.length ?? 0} payment methods`);
-
-  return { store: data.store, products, checkoutConfig };
+export async function fetchFeaturedProducts(limit = 8): Promise<AtlasProduct[]> {
+  const { products } = await fetchBootstrap();
+  return products.slice(0, limit);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -372,7 +480,6 @@ export async function fetchBootstrap(): Promise<{
 
 /**
  * Enrich raw checkout config with frontend-friendly data.
- * Shared by both fetchStoreCheckoutConfig() and fetchBootstrap().
  */
 function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
   const methodLabels: Record<
@@ -410,7 +517,7 @@ function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
       label: 'Pagamento Web3',
       description: '-5% Desconto',
       requiresKYC: true,
-      provider: 'STRIPE_CRYPTO',
+      provider: 'ONRAMP_MONEY',
     },
   };
 
@@ -441,17 +548,30 @@ function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
 }
 
 /**
- * Fetch checkout configuration from Atlas Core.
+ * Fetch checkout configuration — uses bootstrap cache.
  */
 export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
-  const res = await fetch(
-    `${API_URL}/api/v1/storefront/checkout-config?store=${STORE_SLUG}`,
-    { next: { revalidate: 300 } } as RequestInit,
-  );
-  if (!res.ok) throw new Error(`Atlas checkout-config error: ${res.status}`);
+  const { checkoutConfig } = await fetchBootstrap();
 
-  const raw: CheckoutConfigRaw = await res.json();
-  return enrichCheckoutConfig(raw);
+  if (checkoutConfig) return checkoutConfig;
+
+  // Fallback config if bootstrap didn't provide checkout data
+  return {
+    allowedMethods: ['card', 'mbway', 'multibanco', 'crypto'],
+    keys: { stripe_public: '' },
+    cryptoWallet: '',
+    paymentMethods: [
+      { method: 'card', label: 'Cartão de Crédito/Débito', provider: 'STRIPE_PT_002' },
+      { method: 'mbway', label: 'MBWAY', requiresPhone: true, provider: 'PROXY_MBWAY' },
+      { method: 'multibanco', label: 'Multibanco', provider: 'PROXY_MULTIBANCO' },
+      { method: 'crypto', label: 'Pagamento Web3', description: '-5% Desconto', requiresKYC: true, provider: 'ONRAMP_MONEY' },
+    ],
+    stripePublishableKey: '',
+    cryptoDiscountPct: 5,
+    freeShippingThreshold: 75,
+    shippingCost: 6.5,
+    currency: 'EUR',
+  };
 }
 
 /** Backward-compatible alias */
@@ -463,9 +583,6 @@ export const fetchCheckoutConfig = fetchStoreCheckoutConfig;
 
 /**
  * Submit a checkout intent to Atlas Core V2.
- * The Core creates the payment intent and returns
- * an actionType with the necessary payload.
- *
  * Endpoint: POST /api/v1/checkout/intent
  */
 export async function createPaymentIntent(
@@ -498,9 +615,8 @@ export const processCheckout = createPaymentIntent;
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * After a successful payment confirmation (callback or webhook),
- * notify the Core CRM to decrement stock and move the order
- * to "Pending Settlement" status.
+ * Notify Core CRM to decrement stock and move order to "Pending Settlement".
+ * Endpoint: POST /api/v1/crm/order/settle
  */
 export async function settleStock(
   payload: StockSettlementRequest,
@@ -530,9 +646,6 @@ export async function settleStock(
 
 /**
  * Create a new order in Atlas Core.
- * The order starts with status PENDING_SETTLEMENT until payment
- * is confirmed via webhook or callback.
- *
  * Endpoint: POST /api/v1/orders
  */
 export async function createOrder(
@@ -558,4 +671,4 @@ export async function createOrder(
 }
 
 // ─── Exports ─────────────────────────────────────────────────
-export { API_URL, STORE_SLUG };
+export { API_URL, STORE_SLUG, clearCache, CATEGORY_META };

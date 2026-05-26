@@ -17,7 +17,9 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   const displayName = getProductName(product);
 
-  const isOutOfStock = (product.stock ?? 0) <= 0;
+  // If stock is undefined (bootstrap doesn't provide it), treat as in-stock
+  // stockManaged is false in the API, so undefined stock = available
+  const isOutOfStock = product.stock !== undefined && product.stock <= 0;
   const hasDiscount = product.compareAtPrice && product.compareAtPrice > product.priceEur;
   const discountPct = hasDiscount
     ? Math.round(((product.compareAtPrice! - product.priceEur) / product.compareAtPrice!) * 100)

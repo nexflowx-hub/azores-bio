@@ -7,13 +7,13 @@ import { ShoppingBag, Check, ArrowLeft, Minus, Plus, MapPin, Package } from 'luc
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
 import { AtlasProduct } from '@/lib/types';
-import { fetchProductById, fetchProducts } from '@/lib/atlas';
+import { fetchBootstrap } from '@/lib/atlas';
 import { ProductJsonLd } from '@/components/JsonLd';
 
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = params?.id as string || '';
-  const { addToCart, t, formatPrice, getProductName, getProductDescription, locale } = useStore();
+  const { addToCart, t, formatPrice, getProductName, getProductDescription } = useStore();
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
@@ -21,36 +21,36 @@ export default function ProductDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [relatedProducts, setRelatedProducts] = useState<AtlasProduct[]>([]);
 
+  // Load product from bootstrap cache
   useEffect(() => {
     if (productId) {
-      let cancelled = false;
-      fetchProductById(productId)
+      fetchBootstrap()
         .then((data) => {
-          if (!cancelled) {
-            setProduct(data);
-            setIsLoading(false);
+          const found = data.products.find((p) => p.id === productId) || null;
+          setProduct(found);
+
+          // Find related products (same category, excluding current)
+          if (found?.category) {
+            const related = data.products
+              .filter((p) => p.category === found.category && p.id !== productId)
+              .slice(0, 4);
+            setRelatedProducts(related);
+          } else {
+            // No category — show first 4 other products
+            const related = data.products
+              .filter((p) => p.id !== productId)
+              .slice(0, 4);
+            setRelatedProducts(related);
           }
+
+          setIsLoading(false);
         })
         .catch(() => {
-          if (!cancelled) {
-            setProduct(null);
-            setIsLoading(false);
-          }
+          setProduct(null);
+          setIsLoading(false);
         });
-      return () => { cancelled = true; };
     }
   }, [productId]);
-
-  useEffect(() => {
-    if (product?.category) {
-      fetchProducts({ category: product.category, limit: 5 })
-        .then((data) => {
-          const related = (data.products || []).filter((p) => p.id !== productId).slice(0, 4);
-          setRelatedProducts(related);
-        })
-        .catch(() => setRelatedProducts([]));
-    }
-  }, [product?.category, productId]);
 
   const displayName = product ? getProductName(product) : '';
   const displayDesc = product ? getProductDescription(product) : '';
@@ -60,7 +60,8 @@ export default function ProductDetailPage() {
     return product.images && product.images.length > 0 ? product.images : [];
   })();
 
-  const isOutOfStock = product ? (product.stock ?? 0) <= 0 : false;
+  // If stock is undefined (bootstrap doesn't provide it), treat as in-stock
+  const isOutOfStock = product ? (product.stock !== undefined && product.stock <= 0) : false;
   const hasDiscount = product?.compareAtPrice && product.compareAtPrice > product.priceEur;
 
   const handleAddToCart = () => {
@@ -219,8 +220,8 @@ export default function ProductDetailPage() {
               <p className="text-[#3d3d3d] text-sm leading-relaxed mb-6">{displayDesc}</p>
             )}
 
-            {/* Quantity */}
-            {!isOutOfStock && (
+            {/* Quantity — only show if stock is known */}
+            {product.stock !== undefined && !isOutOfStock && (
               <div className="flex items-center gap-4 mb-6">
                 <span className="text-sm text-[#6b6b6b]">{t('cart.quantity')}:</span>
                 <div className="flex items-center border border-[#ede8e0]">
@@ -287,6 +288,10 @@ export default function ProductDetailPage() {
                   </span>
                 </div>
               )}
+              <div className="flex justify-between text-xs text-[#6b6b6b]">
+                <span className="uppercase tracking-wide">ID</span>
+                <span className="font-medium text-[#1a3a3a] text-[10px] font-mono">{product.id}</span>
+              </div>
             </div>
 
             {/* Shipping info */}

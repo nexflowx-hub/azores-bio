@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { SlidersHorizontal, Search, X, ChevronDown } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import ProductCard from '@/components/ProductCard';
 import { AtlasProduct, AtlasCategory } from '@/lib/types';
-import { fetchProducts, fetchCategories } from '@/lib/atlas';
+import { fetchBootstrap } from '@/lib/atlas';
 
 const SORT_OPTIONS = [
   { value: 'featured', labelKey: 'store.sort.featured' },
@@ -17,6 +17,8 @@ const SORT_OPTIONS = [
 
 type SortValue = (typeof SORT_OPTIONS)[number]['value'];
 
+const PRODUCTS_PER_PAGE = 24;
+
 function StorePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -26,14 +28,14 @@ function StorePageContent() {
   // Category is always driven by URL param ?cat=
   const activeCategory = searchParams.get('cat') || 'all';
   const [sort, setSort] = useState<SortValue>('featured');
-  const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [sortOpen, setSortOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [products, setProducts] = useState<AtlasProduct[]>([]);
+  const [allProducts, setAllProducts] = useState<AtlasProduct[]>([]);
   const [categories, setCategories] = useState<AtlasCategory[]>([]);
-  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(PRODUCTS_PER_PAGE);
 
   // Change category → push to URL
   const selectCategory = useCallback((slug: string) => {
@@ -45,50 +47,86 @@ function StorePageContent() {
     }
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    setVisibleCount(PRODUCTS_PER_PAGE); // Reset pagination on category change
   }, [searchParams, router, pathname]);
 
-  // Fetch categories
+  // Fetch bootstrap — single call gets all products + categories
   useEffect(() => {
-    fetchCategories()
-      .then((data) => setCategories(Array.isArray(data) ? data : []))
-      .catch(() => setCategories([]));
-  }, []);
-
-  // Fetch products — reactive to URL category + search + sort
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchProducts({
-      ...(activeCategory !== 'all' ? { category: activeCategory } : {}),
-      ...(search ? { search } : {}),
-      sort,
-      limit: 48,
-    })
+    fetchBootstrap()
       .then((data) => {
-        if (!cancelled) {
-          setProducts(data.products || []);
-          setTotal(data.total || 0);
-          setIsLoading(false);
-        }
+        setAllProducts(data.products);
+        setCategories(data.categories);
+        setIsLoading(false);
       })
       .catch(() => {
-        if (!cancelled) {
-          setProducts([]);
-          setTotal(0);
-          setIsLoading(false);
-        }
+        setAllProducts([]);
+        setCategories([]);
+        setIsLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [activeCategory, search, sort]);
+  }, []);
+
+  // Client-side filtering + sorting (all derived from allProducts)
+  const filteredProducts = useMemo(() => {
+    let result = [...allProducts];
+
+    // Filter by category
+    if (activeCategory !== 'all') {
+      result = result.filter((p) => p.category === activeCategory);
+    }
+
+    // Filter by search
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q)) ||
+          (p.origin && p.origin.toLowerCase().includes(q)),
+      );
+    }
+
+    // Sort
+    switch (sort) {
+      case 'price_asc':
+        result.sort((a, b) => a.priceEur - b.priceEur);
+        break;
+      case 'price_desc':
+        result.sort((a, b) => b.priceEur - a.priceEur);
+        break;
+      case 'name':
+        result.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'featured':
+      default:
+        // Keep original API order
+        break;
+    }
+
+    return result;
+  }, [allProducts, activeCategory, searchQuery, sort]);
+
+  // Paginated slice
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleCount),
+    [filteredProducts, visibleCount],
+  );
+
+  const hasMore = visibleCount < filteredProducts.length;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setSearch(searchInput);
+    setSearchQuery(searchInput);
+    setVisibleCount(PRODUCTS_PER_PAGE);
   };
 
   const clearSearch = () => {
-    setSearch('');
+    setSearchQuery('');
     setSearchInput('');
+    setVisibleCount(PRODUCTS_PER_PAGE);
+  };
+
+  const loadMore = () => {
+    setVisibleCount((prev) => prev + PRODUCTS_PER_PAGE);
   };
 
   const activeCatLabel =
@@ -115,9 +153,9 @@ function StorePageContent() {
           >
             {activeCategory === 'all' ? t('store.title') : activeCatLabel}
           </h1>
-          {total > 0 && (
+          {filteredProducts.length > 0 && (
             <p className="text-white/50 text-sm mt-2">
-              {total} {t('store.results')}
+              {filteredProducts.length} {t('store.results')}
             </p>
           )}
         </div>
@@ -199,7 +237,7 @@ function StorePageContent() {
                 >
                   {t('store.all')}
                   <span className="float-right text-xs opacity-60">
-                    {categories.reduce((s, c) => s + (c.productCount ?? 0), 0)}
+                    {allProducts.length}
                   </span>
                 </button>
               </li>
@@ -215,6 +253,7 @@ function StorePageContent() {
                           : 'text-[#3d3d3d] hover:bg-[#ede8e0]'
                       }`}
                     >
+                      {cat.icon && <span className="mr-1.5">{cat.icon}</span>}
                       {getCategoryName(cat)}
                       <span className="float-right text-xs opacity-60">{cat.productCount}</span>
                     </button>
@@ -261,6 +300,7 @@ function StorePageContent() {
                           activeCategory === cat.slug ? 'bg-[#1a3a3a] text-white' : 'bg-[#f8f5f0] text-[#3d3d3d]'
                         }`}
                       >
+                        {cat.icon && <span className="mr-1">{cat.icon}</span>}
                         {getCategoryName(cat)}
                       </button>
                     ))}
@@ -274,7 +314,7 @@ function StorePageContent() {
                   <div key={i} className="bg-[#ede8e0] animate-pulse aspect-[3/4]" />
                 ))}
               </div>
-            ) : products.length === 0 ? (
+            ) : filteredProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <p className="text-4xl mb-4">🌿</p>
                 <p
@@ -294,17 +334,31 @@ function StorePageContent() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
-                {products.map((product, i) => (
-                  <div
-                    key={product.id}
-                    className="fade-in"
-                    style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
-                  >
-                    <ProductCard product={product} />
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {visibleProducts.map((product, i) => (
+                    <div
+                      key={product.id}
+                      className="fade-in"
+                      style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
+                    >
+                      <ProductCard product={product} />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Load More button */}
+                {hasMore && (
+                  <div className="flex justify-center mt-10">
+                    <button
+                      onClick={loadMore}
+                      className="flex items-center gap-2 bg-[#1a3a3a] text-white px-8 py-3.5 text-xs font-medium tracking-widest uppercase hover:bg-[#2d5a5a] transition-colors min-h-[44px]"
+                    >
+                      Ver mais ({filteredProducts.length - visibleCount} restantes)
+                    </button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
