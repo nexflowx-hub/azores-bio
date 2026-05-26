@@ -157,3 +157,31 @@ Stage Summary:
 - -1002 lines of dead Prisma code removed (would fail Vercel build since @prisma/client not in deps)
 - Store category selection now persists in URL
 - Commit 3ae244c pushed to GitHub main
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix product rendering — bootstrap-first architecture
+
+Work Log:
+- Tested all Atlas API endpoints: /storefront/bootstrap ✅, /storefront/products ✅, /storefront/categories ❌, /storefront/products/{id} ❌
+- Discovered bootstrap returns 460 products with only 5 fields: id, name, slug, priceEur, images
+- Discovered products have NO category/description/featured/stock/origin fields
+- Rewrote atlas.ts v4.0 with bootstrap-first architecture:
+  - fetchBootstrap() as single source of truth with 60s in-memory cache
+  - Category derivation from product name keywords (PT language matching)
+  - All fetch functions derive from bootstrap cache
+  - Client-side filtering: search, sort, category done in-browser
+- Updated homepage (page.tsx) to use fetchBootstrap() — shows first 8 products as featured + derived categories
+- Updated store page with client-side filtering and "Load More" pagination for 460 products
+- Updated product detail page to find product from bootstrap cache (no /products/{id} endpoint exists)
+- Fixed ProductCard: isOutOfStock now treats undefined stock as in-stock (stockManaged=false)
+- Removed orphaned Prisma files: api/products, api/categories, api/orders, api/stripe, lib/db.ts, lib/shippingCalculator.ts
+- Verified: lint passes, homepage 200, store 200
+- Pushed commit 56a206e to GitHub
+
+Stage Summary:
+- Products now render from /storefront/bootstrap endpoint
+- 460 products available in store with category derivation
+- Categories: queijos, manteigas, conservas, vinhos, licores, cha, compotas, pimentas, bebidas, pastelaria, charcutaria, mel, cosmetica, outros
+- Bootstrap cache prevents re-fetching on navigation
+- Checkout config also comes from bootstrap (4 payment methods: card, multibanco, mbway, crypto)
