@@ -36,6 +36,7 @@ import {
   PaymentMethodConfig,
   PaymentMethod,
   CheckoutIntentRequest,
+  CheckoutIntentWire,
   AtlasCheckoutResponse,
   OrdersRequest,
   AtlasOrdersResponse,
@@ -584,17 +585,37 @@ export const fetchCheckoutConfig = fetchStoreCheckoutConfig;
 /**
  * Submit a checkout intent to Atlas Core V2.
  * Endpoint: POST /api/v1/checkout/intent
+ *
+ * CRITICAL: The frontend sends CheckoutIntentRequest (friendly format),
+ * but the Core V2 controller expects a specific wire format:
+ *   - method → payment.provider (UPPERCASE: CARD, MBWAY, etc.)
+ *   - items → cart
+ *   - currency is required (not optional)
  */
 export async function createPaymentIntent(
   payload: CheckoutIntentRequest,
 ): Promise<AtlasCheckoutResponse> {
+  // ── Map frontend-friendly payload → Core V2 wire format ──
+  const wire: CheckoutIntentWire = {
+    store: payload.store,
+    payment: {
+      provider: payload.method.toUpperCase(), // 'card' → 'CARD', 'mbway' → 'MBWAY', etc.
+    },
+    amount: payload.amount,
+    currency: payload.currency || 'EUR',
+    customer: payload.customer,
+    cart: payload.items, // 'items' → 'cart' (Core V2 contract)
+  };
+
+  console.log(`[Atlas] checkout/intent: provider=${wire.payment.provider}, amount=${wire.amount}, cart=${wire.cart.length} items`);
+
   const res = await fetch(`${API_URL}/api/v1/checkout/intent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-store-slug': STORE_SLUG,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(wire),
   });
 
   if (!res.ok) {

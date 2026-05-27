@@ -192,6 +192,11 @@ export interface ShippingMethodConfig {
 }
 
 // ─── Checkout Intent Request (Core V2 Contract) ─────────────
+/**
+ * Frontend-facing checkout intent request.
+ * The adapter maps this to the exact Core V2 wire format
+ * before sending (method → payment.provider, items → cart).
+ */
 export interface CheckoutIntentRequest {
   store: string;
   method: PaymentMethod;
@@ -205,6 +210,22 @@ export interface CheckoutItem {
   productId: string;
   quantity: number;
   priceEur: number;
+}
+
+/**
+ * Core V2 wire format — the exact shape Atlas Core expects
+ * on POST /api/v1/checkout/intent.
+ * The adapter converts CheckoutIntentRequest → this shape.
+ */
+export interface CheckoutIntentWire {
+  store: string;
+  payment: {
+    provider: string;   // UPPERCASE: CARD, MBWAY, MULTIBANCO, SEPA, CRYPTO
+  };
+  amount: number;
+  currency: string;
+  customer: CheckoutCustomer;
+  cart: CheckoutItem[]; // NOT 'items' — must be 'cart'
 }
 
 export interface CheckoutCustomer {
