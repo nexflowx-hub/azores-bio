@@ -520,6 +520,11 @@ function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
       requiresKYC: true,
       provider: 'ONRAMP_MONEY',
     },
+    bizum: {
+      label: 'Bizum',
+      description: 'Pagamento rápido via app do seu banco',
+      provider: 'STRIPE_BIZUM',
+    },
   };
 
   const paymentMethods: PaymentMethodConfig[] = (
@@ -558,7 +563,7 @@ export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
 
   // Fallback config if bootstrap didn't provide checkout data
   return {
-    allowedMethods: ['card', 'mbway', 'multibanco', 'crypto'],
+    allowedMethods: ['card', 'mbway', 'multibanco', 'crypto', 'bizum'],
     keys: { stripe_public: '' },
     cryptoWallet: '',
     paymentMethods: [
@@ -566,6 +571,7 @@ export async function fetchStoreCheckoutConfig(): Promise<CheckoutConfig> {
       { method: 'mbway', label: 'MBWAY', requiresPhone: true, provider: 'PROXY_MBWAY' },
       { method: 'multibanco', label: 'Multibanco', provider: 'PROXY_MULTIBANCO' },
       { method: 'crypto', label: 'Pagamento Web3', description: '-5% Desconto', requiresKYC: true, provider: 'ONRAMP_MONEY' },
+      { method: 'bizum', label: 'Bizum', description: 'Pagamento rápido via app do seu banco', provider: 'STRIPE_BIZUM' },
     ],
     stripePublishableKey: '',
     cryptoDiscountPct: 5,

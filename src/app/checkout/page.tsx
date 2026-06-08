@@ -7,6 +7,7 @@ import {
   ShoppingBag, CreditCard, MapPin, User, Loader2,
   Smartphone, Landmark, Building2,
   Wallet, Zap, ShieldCheck, ArrowRight, AlertTriangle,
+  Banknote,
 } from 'lucide-react';
 import { useStore } from '@/contexts/StoreContext';
 import { toast } from 'sonner';
@@ -56,6 +57,7 @@ const PAYMENT_ICONS: Record<string, React.ReactNode> = {
   multibanco: <Landmark size={22} />,
   sepa: <Building2 size={22} />,
   crypto: <Wallet size={22} />,
+  bizum: <Banknote size={22} />,
 };
 
 export default function CheckoutPage() {
@@ -125,7 +127,7 @@ export default function CheckoutPage() {
         console.error('Failed to load checkout config:', err);
         // Fallback: default payment methods with raw API fields
         setCheckoutConfig({
-          allowedMethods: ['card', 'mbway', 'multibanco', 'sepa', 'crypto'],
+          allowedMethods: ['card', 'mbway', 'multibanco', 'sepa', 'crypto', 'bizum'],
           keys: { stripe_public: '' },
           cryptoWallet: '',
           paymentMethods: [
@@ -134,6 +136,7 @@ export default function CheckoutPage() {
             { method: 'multibanco', label: 'Multibanco', provider: 'PROXY_MULTIBANCO' },
             { method: 'sepa', label: 'Transferência SEPA', provider: 'PROXY_SEPA' },
             { method: 'crypto', label: 'Pagamento Web3', description: `-${cryptoDiscountPct}% Desconto`, requiresKYC: true, provider: 'STRIPE_CRYPTO' },
+            { method: 'bizum', label: 'Bizum', description: 'Pagamento rápido via app do seu banco', provider: 'STRIPE_BIZUM' },
           ],
           stripePublishableKey: '',
           cryptoDiscountPct: 5,
@@ -399,12 +402,12 @@ export default function CheckoutPage() {
     }
 
     clearCart();
-    const params = new URLSearchParams({ type: 'card', tid: transactionId || '' });
+    const params = new URLSearchParams({ type: paymentMethod, tid: transactionId || '' });
     router.push(`/checkout/success?${params.toString()}`);
   };
 
   // ─── Available payment methods (dynamic from Core) ────
-  const availableMethods = checkoutConfig?.paymentMethods?.map((pm) => pm.method) || ['card', 'mbway', 'multibanco', 'sepa', 'crypto'];
+  const availableMethods = checkoutConfig?.paymentMethods?.map((pm) => pm.method) || ['card', 'mbway', 'multibanco', 'sepa', 'crypto', 'bizum'];
 
   // ─── Dynamic labels from Core config ───────────────────
   const getPaymentLabel = (method: PaymentMethod): string => {
@@ -416,6 +419,7 @@ export default function CheckoutPage() {
       multibanco: 'Multibanco',
       sepa: 'Transferência SEPA',
       crypto: 'Pagamento Web3 (Cartão Bancário)',
+      bizum: 'Bizum',
     };
     return defaults[method] || method;
   };
@@ -429,6 +433,7 @@ export default function CheckoutPage() {
       multibanco: 'Referência de pagamento',
       sepa: 'Transferência bancária',
       crypto: `Poupe ${cryptoDiscountPct}% — pague com cartão via Stripe. Sem carteira crypto.`,
+      bizum: 'Pagamento rápido e seguro através da app do seu banco',
     };
     return defaults[method] || '';
   };
@@ -699,17 +704,42 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               )}
+
+              {/* Bizum info — redirect flow, no phone needed */}
+              {paymentMethod === 'bizum' && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200">
+                  <div className="flex items-start gap-2">
+                    <Banknote size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-blue-800">Pagamento via Bizum</p>
+                      <p className="text-[10px] text-blue-700 mt-1">Após finalizar, será redirecionado para a página oficial do Bizum onde poderá autorizar o pagamento na app do seu banco espanhol. Não é necessário introduzir o número de telemóvel — o processo é automático e seguro.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
-            {/* ── Stripe Elements (Core routed to STRIPE_PT_002) ── */}
+            {/* ── Stripe Elements (Card + Bizum via STRIPE_ELEMENTS) ── */}
             {showStripeForm && clientSecret && publishableKey && (
               <section id="stripe-section" className="bg-white p-5 sm:p-6 md:p-8 border-2 border-[#1a3a3a]">
                 <div className="flex items-center gap-2 mb-5">
                   <ShieldCheck size={16} className="text-[#1a3a3a]" />
-                  <h2 className="text-base sm:text-lg font-medium text-[#1a3a3a]" style={{ fontFamily: "'Playfair Display', serif" }}>Pagamento Seguro</h2>
+                  <h2 className="text-base sm:text-lg font-medium text-[#1a3a3a]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                    {paymentMethod === 'bizum' ? 'Pagamento via Bizum' : 'Pagamento Seguro'}
+                  </h2>
                 </div>
-                <p className="text-sm text-[#6b6b6b] mb-6">Insira os seus dados de cartão para concluir a encomenda.</p>
-                <StripePaymentForm clientSecret={clientSecret} publishableKey={publishableKey} onSuccess={handlePaymentSuccess} />
+                <p className="text-sm text-[#6b6b6b] mb-6">
+                  {paymentMethod === 'bizum'
+                    ? 'Será redirecionado para autorizar o pagamento na app do seu banco.'
+                    : 'Insira os seus dados de cartão para concluir a encomenda.'}
+                </p>
+                <StripePaymentForm
+                  clientSecret={clientSecret}
+                  publishableKey={publishableKey}
+                  paymentMethod={paymentMethod}
+                  orderId={transactionId}
+                  onSuccess={handlePaymentSuccess}
+                />
               </section>
             )}
 

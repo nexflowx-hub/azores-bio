@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Payment Types ──────────────────────────────────────────
-export type PaymentMethod = 'card' | 'mbway' | 'multibanco' | 'sepa' | 'crypto';
+export type PaymentMethod = 'card' | 'mbway' | 'multibanco' | 'sepa' | 'crypto' | 'bizum';
 
 /**
  * ActionType returned by Atlas Core V2 on POST /checkout/intent.
