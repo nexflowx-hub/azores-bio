@@ -8,6 +8,7 @@ import { ShoppingBag, Menu, X, Globe, ChevronDown } from 'lucide-react';
 
 const LOCALES: { code: Locale; label: string; flag: string }[] = [
   { code: 'pt', label: 'PT', flag: '🇵🇹' },
+  { code: 'es', label: 'ES', flag: '🇪🇸' },
   { code: 'en', label: 'EN', flag: '🇬🇧' },
   { code: 'fr', label: 'FR', flag: '🇫🇷' },
   { code: 'de', label: 'DE', flag: '🇩🇪' },

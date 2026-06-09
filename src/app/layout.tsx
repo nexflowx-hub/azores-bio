@@ -57,6 +57,7 @@ export const metadata: Metadata = {
       'en-GB': 'https://azores.bio/?lang=en',
       'fr-FR': 'https://azores.bio/?lang=fr',
       'de-DE': 'https://azores.bio/?lang=de',
+      'es-ES': 'https://azores.bio/?lang=es',
     },
   },
   openGraph: {
@@ -67,7 +68,7 @@ export const metadata: Metadata = {
     siteName: 'AZORES.BIO',
     type: 'website',
     locale: 'pt_PT',
-    alternateLocale: ['en_GB', 'fr_FR', 'de_DE'],
+    alternateLocale: ['en_GB', 'es_ES', 'fr_FR', 'de_DE'],
     images: [
       {
         url: '/og-image.png',

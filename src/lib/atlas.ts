@@ -188,9 +188,11 @@ function sanitizeProduct(raw: AtlasProductRaw): AtlasProduct {
     nameEn: raw.nameEn ? String(raw.nameEn) : undefined,
     nameFr: raw.nameFr ? String(raw.nameFr) : undefined,
     nameDe: raw.nameDe ? String(raw.nameDe) : undefined,
+    nameEs: raw.nameEs ? String(raw.nameEs) : undefined,
     descriptionEn: raw.descriptionEn ? String(raw.descriptionEn) : undefined,
     descriptionFr: raw.descriptionFr ? String(raw.descriptionFr) : undefined,
     descriptionDe: raw.descriptionDe ? String(raw.descriptionDe) : undefined,
+    descriptionEs: raw.descriptionEs ? String(raw.descriptionEs) : undefined,
     compareAtPrice: raw.compareAtPrice ? sanitizeDecimal(raw.compareAtPrice, undefined) : undefined,
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : undefined,
     active: sanitizeBoolean(raw.active),
@@ -527,9 +529,16 @@ function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
     },
   };
 
-  const paymentMethods: PaymentMethodConfig[] = (
-    raw.allowedMethods || []
-  ).map((method) => {
+  // Ensure critical methods are always available even if the API
+  // hasn't been updated yet (e.g. 'bizum' was added after initial deploy).
+  const rawMethods = raw.allowedMethods || [];
+  const REQUIRED_METHODS = ['bizum', 'sepa'] as const;
+  const mergedMethods = [...rawMethods];
+  for (const m of REQUIRED_METHODS) {
+    if (!mergedMethods.includes(m)) mergedMethods.push(m);
+  }
+
+  const paymentMethods: PaymentMethodConfig[] = mergedMethods.map((method) => {
     const meta = methodLabels[method] || {
       label: method,
       provider: method.toUpperCase(),
@@ -541,7 +550,7 @@ function enrichCheckoutConfig(raw: CheckoutConfigRaw): CheckoutConfig {
   });
 
   return {
-    allowedMethods: raw.allowedMethods,
+    allowedMethods: mergedMethods,
     keys: raw.keys,
     cryptoWallet: raw.cryptoWallet,
     paymentMethods,

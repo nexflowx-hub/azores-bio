@@ -43,9 +43,11 @@ export interface AtlasProductRaw {
   nameEn?: string;
   nameFr?: string;
   nameDe?: string;
+  nameEs?: string;
   descriptionEn?: string;
   descriptionFr?: string;
   descriptionDe?: string;
+  descriptionEs?: string;
   compareAtPrice?: number | string;  // Prisma Decimal → "39.99"
   imageUrl?: string;
   active?: boolean | string;
@@ -69,9 +71,11 @@ export interface AtlasProduct {
   nameEn?: string;
   nameFr?: string;
   nameDe?: string;
+  nameEs?: string;
   descriptionEn?: string;
   descriptionFr?: string;
   descriptionDe?: string;
+  descriptionEs?: string;
   compareAtPrice?: number;
   imageUrl?: string;
   active?: boolean;
@@ -85,6 +89,7 @@ export interface AtlasCategory {
   nameEn?: string;
   nameFr?: string;
   nameDe?: string;
+  nameEs?: string;
   productCount?: number;
   image?: string;
   icon?: string;

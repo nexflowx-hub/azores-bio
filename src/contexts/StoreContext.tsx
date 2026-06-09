@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { AtlasProduct, AtlasCategory, CartItem } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────
-export type Locale = 'pt' | 'en' | 'fr' | 'de';
+export type Locale = 'pt' | 'en' | 'es' | 'fr' | 'de';
 export type Currency = 'EUR' | 'USD' | 'GBP';
 
 // Re-export CartItem from canonical types module
@@ -180,6 +180,62 @@ const translations: Record<string, Record<string, string>> = {
     'footer.privacy': 'Politique de Confidentialité',
     'footer.terms': 'Conditions Générales',
   },
+  es: {
+    'nav.home': 'Inicio',
+    'nav.store': 'Tienda',
+    'nav.about': 'Nosotros',
+    'nav.contact': 'Contacto',
+    'home.hero.title': 'El Sabor Auténtico de las Azores',
+    'home.hero.subtitle': 'Productos premium de 9 islas, cuidadosamente seleccionados y entregados en todo el mundo.',
+    'home.hero.cta': 'Explorar la Tienda',
+    'home.featured': 'Productos Destacados',
+    'home.categories': 'Categorías',
+    'home.about.title': 'De la Tierra Volcánica a tu Hogar',
+    'home.about.text': 'Las Azores son un archipiélago único en el corazón del Atlántico, donde la naturaleza volcánica crea condiciones excepcionales para producir alimentos de calidad extraordinaria.',
+    'cat.queijos': 'Quesos',
+    'cat.manteigas': 'Mantequillas',
+    'cat.conservas': 'Conservas',
+    'cat.vinhos': 'Vinos',
+    'cat.licores': 'Licores',
+    'cat.cha': 'Tés',
+    'cat.pastelaria': 'Repostería',
+    'cat.compotas': 'Mermeladas y Miel',
+    'cat.pimentas': 'Pimientos',
+    'cat.bebidas': 'Bebidas',
+    'cat.charcutaria': 'Embutidos',
+    'cat.outros': 'Otros',
+    'product.add_to_cart': 'Añadir al Carrito',
+    'product.added': '¡Añadido!',
+    'product.out_of_stock': 'Agotado',
+    'product.related': 'Productos Relacionados',
+    'product.sku': 'Referencia',
+    'cart.title': 'Carrito',
+    'cart.empty': 'Tu carrito está vacío',
+    'cart.empty.cta': 'Seguir comprando',
+    'cart.subtotal': 'Subtotal',
+    'cart.shipping': 'Envío',
+    'cart.total': 'Total',
+    'cart.checkout': 'Finalizar Compra',
+    'cart.free_shipping': 'Envío gratuito desde €75',
+    'cart.quantity': 'Cantidad',
+    'checkout.title': 'Finalizar Pedido',
+    'store.title': 'Todos los Productos',
+    'store.all': 'Todos los Productos',
+    'store.filter': 'Filtrar',
+    'store.sort': 'Ordenar',
+    'store.sort.featured': 'Destacados',
+    'store.sort.price_asc': 'Precio: Menor a Mayor',
+    'store.sort.price_desc': 'Precio: Mayor a Menor',
+    'store.sort.name': 'Nombre A-Z',
+    'store.results': 'productos',
+    'store.empty': 'No se encontraron productos',
+    'footer.legal': 'Azores Meet, Lda | NIF: 513553169',
+    'footer.address': 'Macela, 9875-030 Santo Antão, Calheta (São Jorge), Azores',
+    'footer.rights': 'Todos los derechos reservados',
+    'footer.shipping': 'Envíos y Devoluciones',
+    'footer.privacy': 'Política de Privacidad',
+    'footer.terms': 'Términos y Condiciones',
+  },
   de: {
     'nav.home': 'Startseite',
     'nav.store': 'Shop',
@@ -260,9 +316,9 @@ interface StoreContextType {
   convertPrice: (priceEur: number) => number;
   isCartOpen: boolean;
   setCartOpen: (open: boolean) => void;
-  getCategoryName: (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null }) => string;
-  getProductName: (product: { name: string; nameEn?: string | null; nameFr?: string | null; nameDe?: string | null }) => string;
-  getProductDescription: (product: { description?: string | null; descriptionEn?: string | null; descriptionFr?: string | null; descriptionDe?: string | null }) => string;
+  getCategoryName: (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null; nameEs?: string | null }) => string;
+  getProductName: (product: { name: string; nameEn?: string | null; nameFr?: string | null; nameDe?: string | null; nameEs?: string | null }) => string;
+  getProductDescription: (product: { description?: string | null; descriptionEn?: string | null; descriptionFr?: string | null; descriptionDe?: string | null; descriptionEs?: string | null }) => string;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -368,9 +424,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const cartTotal = cart.reduce((sum, item) => sum + item.priceEur * item.quantity, 0);
 
   const getCategoryName = useCallback(
-    (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null }): string => {
+    (category: AtlasCategory | { slug: string; name: string; namePt?: string; nameEn?: string; nameFr?: string | null; nameDe?: string | null; nameEs?: string | null }): string => {
       // Prefer .name which Atlas provides, fallback to locale-specific names
       if (locale === 'pt') return category.namePt || category.name || category.slug;
+      if (locale === 'es') return category.nameEs || category.name || category.slug;
       if (locale === 'en') return category.nameEn || category.name || category.slug;
       if (locale === 'fr') return category.nameFr || category.nameEn || category.name || category.slug;
       if (locale === 'de') return category.nameDe || category.nameEn || category.name || category.slug;
@@ -380,8 +437,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getProductName = useCallback(
-    (product: { name: string; nameEn?: string | null; nameFr?: string | null; nameDe?: string | null }): string => {
+    (product: { name: string; nameEn?: string | null; nameFr?: string | null; nameDe?: string | null; nameEs?: string | null }): string => {
       switch (locale) {
+        case 'es': return product.nameEs || product.name;
         case 'en': return product.nameEn || product.name;
         case 'fr': return product.nameFr || product.nameEn || product.name;
         case 'de': return product.nameDe || product.nameEn || product.name;
@@ -392,8 +450,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getProductDescription = useCallback(
-    (product: { description?: string | null; descriptionEn?: string | null; descriptionFr?: string | null; descriptionDe?: string | null }): string => {
+    (product: { description?: string | null; descriptionEn?: string | null; descriptionFr?: string | null; descriptionDe?: string | null; descriptionEs?: string | null }): string => {
       switch (locale) {
+        case 'es': return product.descriptionEs || product.description || '';
         case 'en': return product.descriptionEn || product.description || '';
         case 'fr': return product.descriptionFr || product.descriptionEn || product.description || '';
         case 'de': return product.descriptionDe || product.descriptionEn || product.description || '';
