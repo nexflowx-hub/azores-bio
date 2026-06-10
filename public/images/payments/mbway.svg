@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="none">
+  <rect width="48" height="32" rx="4" fill="#ED1C24"/>
+  <rect x="8" y="6" width="32" height="20" rx="2" fill="white"/>
+  <rect x="10" y="8" width="28" height="16" rx="1" fill="#ED1C24"/>
+  <text x="24" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="8" fill="white">MB WAY</text>
+</svg>

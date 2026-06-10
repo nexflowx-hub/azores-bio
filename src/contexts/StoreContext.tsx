@@ -67,6 +67,7 @@ const translations: Record<string, Record<string, string>> = {
     'footer.shipping': 'Envios e Devoluções',
     'footer.privacy': 'Política de Privacidade',
     'footer.terms': 'Termos e Condições',
+    'footer.payments': 'Meios de Pagamento',
   },
   en: {
     'nav.home': 'Home',
@@ -123,6 +124,7 @@ const translations: Record<string, Record<string, string>> = {
     'footer.shipping': 'Shipping & Returns',
     'footer.privacy': 'Privacy Policy',
     'footer.terms': 'Terms & Conditions',
+    'footer.payments': 'Payment Methods',
   },
   fr: {
     'nav.home': 'Accueil',
@@ -179,6 +181,7 @@ const translations: Record<string, Record<string, string>> = {
     'footer.shipping': 'Livraison & Retours',
     'footer.privacy': 'Politique de Confidentialité',
     'footer.terms': 'Conditions Générales',
+    'footer.payments': 'Moyens de Paiement',
   },
   es: {
     'nav.home': 'Inicio',
@@ -235,6 +238,7 @@ const translations: Record<string, Record<string, string>> = {
     'footer.shipping': 'Envíos y Devoluciones',
     'footer.privacy': 'Política de Privacidad',
     'footer.terms': 'Términos y Condiciones',
+    'footer.payments': 'Medios de Pago',
   },
   de: {
     'nav.home': 'Startseite',
@@ -291,6 +295,7 @@ const translations: Record<string, Record<string, string>> = {
     'footer.shipping': 'Versand & Rückgabe',
     'footer.privacy': 'Datenschutzrichtlinie',
     'footer.terms': 'Allgemeine Geschäftsbedingungen',
+    'footer.payments': 'Zahlungsmethoden',
   },
 };
 

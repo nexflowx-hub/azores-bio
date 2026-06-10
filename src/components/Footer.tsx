@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useStore } from '@/contexts/StoreContext';
 import { Instagram, Facebook, Youtube, Mail, MapPin, Phone } from 'lucide-react';
 
@@ -125,6 +126,23 @@ export default function Footer() {
                   </Link>
                 </li>
               ))}
+              {/* Livro de Reclamações link */}
+              <li>
+                <a
+                  href="https://www.livroreclamacoes.pt"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/60 text-sm hover:text-[#b8962e] transition-colors inline-flex items-center gap-1.5"
+                >
+                  <Image
+                    src="/images/payments/livro-reclamacoes.svg"
+                    alt="Livro de Reclamações"
+                    width={60}
+                    height={20}
+                    className="opacity-70 hover:opacity-100 transition-opacity"
+                  />
+                </a>
+              </li>
             </ul>
           </div>
 
@@ -175,6 +193,74 @@ export default function Footer() {
                 <button className="bg-[#b8962e] text-white text-xs font-medium px-4 py-2 hover:bg-[#a6832a] transition-colors tracking-wider uppercase">
                   OK
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Payments & Livro de Reclamações bar */}
+      <div className="border-t border-white/10">
+        <div className="container py-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-5">
+            {/* Livro de Reclamações */}
+            <a
+              href="https://www.livroreclamacoes.pt"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 hover:opacity-90 transition-opacity group"
+              aria-label="Livro de Reclamações"
+            >
+              <Image
+                src="/images/payments/livro-reclamacoes.svg"
+                alt="Livro de Reclamações"
+                width={120}
+                height={40}
+                className="opacity-80 group-hover:opacity-100 transition-opacity"
+              />
+            </a>
+
+            {/* Payment Methods */}
+            <div className="flex items-center gap-3 flex-wrap justify-center">
+              <span className="text-white/40 text-xs uppercase tracking-widest mr-1" style={{ fontFamily: "'Inter', sans-serif" }}>
+                {t('footer.payments')}
+              </span>
+              <div className="flex items-center gap-2">
+                <Image
+                  src="/images/payments/visa.svg"
+                  alt="Visa"
+                  width={40}
+                  height={26}
+                  className="opacity-80 hover:opacity-100 transition-opacity rounded"
+                />
+                <Image
+                  src="/images/payments/mastercard.svg"
+                  alt="Mastercard"
+                  width={40}
+                  height={26}
+                  className="opacity-80 hover:opacity-100 transition-opacity rounded"
+                />
+                <Image
+                  src="/images/payments/mbway.svg"
+                  alt="MB WAY"
+                  width={40}
+                  height={26}
+                  className="opacity-80 hover:opacity-100 transition-opacity rounded"
+                />
+                <Image
+                  src="/images/payments/multibanco.svg"
+                  alt="Multibanco"
+                  width={40}
+                  height={26}
+                  className="opacity-80 hover:opacity-100 transition-opacity rounded"
+                />
+                <Image
+                  src="/images/payments/bizum.svg"
+                  alt="Bizum"
+                  width={40}
+                  height={26}
+                  className="opacity-80 hover:opacity-100 transition-opacity rounded"
+                />
               </div>
             </div>
           </div>

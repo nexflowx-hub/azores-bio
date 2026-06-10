@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="none">
+  <rect width="48" height="32" rx="4" fill="#6B2FA0"/>
+  <circle cx="24" cy="14" r="8" fill="white" opacity="0.15"/>
+  <path d="M20 10L28 14L20 18V10Z" fill="white"/>
+  <text x="24" y="27" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="7" fill="white">BIZUM</text>
+</svg>
